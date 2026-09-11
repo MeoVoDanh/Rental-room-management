@@ -1,8 +1,20 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/hooks/useAuth';
+import { UserRole } from '@/types';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TenantLayout() {
+  const { user, isLoading } = useAuth();
+  const insets = useSafeAreaInsets();
+  const iosBottomInset = Platform.OS === 'ios' ? insets.bottom : 0;
+  if (isLoading) return <LoadingSpinner />;
+  if (!user) return <Redirect href="/(auth)/login" />;
+  if (user.role !== UserRole.TENANT) return <Redirect href="/(landlord)/dashboard" />;
+
   return (
     <Tabs
       screenOptions={{
@@ -13,9 +25,9 @@ export default function TenantLayout() {
           backgroundColor: Colors.tabBar,
           borderTopColor: Colors.tabBarBorder,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 4,
+          height: 60 + iosBottomInset,
+          paddingBottom: Math.max(8, iosBottomInset - 6),
+          paddingTop: 5,
         },
         tabBarLabelStyle: {
           fontSize: 11,

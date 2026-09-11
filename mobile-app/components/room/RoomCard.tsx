@@ -11,9 +11,11 @@ import { Colors, FontSize, Spacing } from '@/constants/theme';
 interface RoomCardProps {
   room: Room;
   onPress: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
-export function RoomCard({ room, onPress }: RoomCardProps) {
+export function RoomCard({ room, onPress, onEdit, onDelete }: RoomCardProps) {
   const telemetry = MOCK_TELEMETRY[room.id];
 
   return (
@@ -63,6 +65,19 @@ export function RoomCard({ room, onPress }: RoomCardProps) {
               value={`${telemetry.gasRaw}`}
               color={telemetry.isGasDanger ? Colors.danger : Colors.success}
             />
+          </View>
+        )}
+
+        {(onEdit || onDelete) && (
+          <View style={styles.actions}>
+            {onEdit && <TouchableOpacity style={styles.editButton} onPress={(event) => { event.stopPropagation(); onEdit(); }}>
+              <Ionicons name="create-outline" size={16} color={Colors.primaryLight} />
+              <Text style={styles.editText}>Cập nhật</Text>
+            </TouchableOpacity>}
+            {onDelete && <TouchableOpacity style={styles.deleteButton} onPress={(event) => { event.stopPropagation(); onDelete(); }}>
+              <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+              <Text style={styles.deleteText}>Xóa phòng</Text>
+            </TouchableOpacity>}
           </View>
         )}
       </GlassCard>
@@ -169,4 +184,9 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '600',
   },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  editButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: Colors.primaryMuted },
+  deleteButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: Colors.dangerMuted },
+  editText: { color: Colors.primaryLight, fontSize: FontSize.xs, fontWeight: '600' },
+  deleteText: { color: Colors.danger, fontSize: FontSize.xs, fontWeight: '600' },
 });

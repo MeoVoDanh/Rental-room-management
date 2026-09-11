@@ -1,18 +1,22 @@
 import { supabase } from '@/lib/supabase';
 import { ControlCommand, CommandStatus } from '@/types';
 
+const API_URL = (
+  process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000'
+).replace(/\/$/, '');
+
 function mapCommand(row: any): ControlCommand {
   return {
     id: String(row.id),
     roomId: row.room_id,
     commandType: row.command,
     status: row.status as CommandStatus,
-    issuedBy: row.created_by,
-    issuedByName: row.issuer_name ?? 'Người dùng',
+    issuedBy: row.created_by ?? '',
+    issuedByName: row.issuer_name ?? (row.created_by ? 'Người dùng chưa đặt tên' : 'Hệ thống'),
     targetDevice: row.device_id,
     payload: {},
     createdAt: row.created_at,
-    completedAt: row.acknowledged_at ?? undefined,
+    completedAt: row.acked_at ?? row.acknowledged_at ?? undefined,
   };
 }
 
@@ -23,20 +27,22 @@ export async function sendCommand(
   command: string,
   userId: string
 ): Promise<ControlCommand> {
-  const { data, error } = await supabase
-    .from('control_commands')
-    .insert({
+  // Backend vừa lưu command vào Supabase vừa publish xuống MQTT.
+  const response = await fetch(`${API_URL}/api/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       room_id: roomId,
       device_id: deviceId,
       command,
-      status: CommandStatus.PENDING,
-      created_by: userId,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return mapCommand(data);
+      user_id: userId,
+    }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
+  }
+  return mapCommand(body.command);
 }
 
 /** Lấy lịch sử lệnh điều khiển */

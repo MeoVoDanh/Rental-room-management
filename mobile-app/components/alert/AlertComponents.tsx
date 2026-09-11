@@ -19,6 +19,7 @@ const SEVERITY_CONFIG = {
 const ALERT_TYPE_LABELS: Record<AlertTypeEnum, string> = {
   [AlertTypeEnum.GAS_LEAK]: 'Rò rỉ gas',
   [AlertTypeEnum.HIGH_TEMPERATURE]: 'Nhiệt độ cao',
+  [AlertTypeEnum.DOOR_OPEN_TOO_LONG]: 'Cửa mở quá lâu',
   [AlertTypeEnum.DOOR_FORCED]: 'Cửa bị cưỡng bức',
   [AlertTypeEnum.NODE_OFFLINE]: 'Node mất kết nối',
 };

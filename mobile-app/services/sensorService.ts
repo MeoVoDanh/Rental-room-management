@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { SensorReading, TelemetrySnapshot } from '@/types';
 
-const GAS_THRESHOLD = 300;
+const GAS_THRESHOLD = 1800;
 
 function mapReading(row: any): SensorReading {
   return {
@@ -42,12 +42,14 @@ export async function getLatestSensorReading(
 /** Lấy lịch sử cảm biến */
 export async function getSensorHistory(
   roomId: string,
-  limit = 20
+  limit = 288
 ): Promise<SensorReading[]> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('sensor_readings')
     .select('*')
     .eq('room_id', roomId)
+    .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(limit);
 

@@ -1,41 +1,44 @@
-import React, { useState } from 'react';
-import {
-  ScrollView,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Modal,
-  Alert,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { DeviceToggle } from '@/components/room/DeviceToggle';
+import { AccessCredentialCard } from '@/components/room/AccessCredentialCard';
+import { NodeManagementCard } from '@/components/room/NodeManagementCard';
+import { RoomEventHistory } from '@/components/room/RoomEventHistory';
 import { EnvironmentCard } from '@/components/sensor/EnvironmentCard';
 import { SensorChart } from '@/components/sensor/SensorChart';
+import { Badge } from '@/components/ui/Badge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { StatusDot } from '@/components/ui/StatusDot';
-import { Badge } from '@/components/ui/Badge';
+import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { useAuth } from '@/hooks/useAuth';
+import { useCommands } from '@/hooks/useCommands';
 import { useRoom } from '@/hooks/useRoom';
 import { useSensor } from '@/hooks/useSensor';
-import { useCommands } from '@/hooks/useCommands';
-import { useAccessEvents } from '@/hooks/useAccessEvents';
 import { useTenants } from '@/hooks/useTenants';
-import { useAuth } from '@/hooks/useAuth';
-import { Colors, FontSize, Spacing, Radius } from '@/constants/theme';
-import { CommandStatus } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RoomDetailScreen() {
   const { roomId } = useLocalSearchParams<{ roomId: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const { room, isLoading: roomLoading, refetch: refetchRoom } = useRoom(roomId);
   const { telemetry, history: sensorHistory } = useSensor(roomId);
-  const { commands, isSending, send } = useCommands(roomId);
-  const { events: accessEvents } = useAccessEvents(roomId, 5);
-  const { tenants, assignToRoom, removeFromRoom, refetch: refetchTenants } = useTenants();
+  const { isSending, send } = useCommands(roomId);
+  const { tenants, assignToRoom, removeFromRoom, refetch: refetchTenants } = useTenants(user?.id);
 
   const [lightOptimistic, setLightOptimistic] = useState<boolean | null>(null);
   const [lockOptimistic, setLockOptimistic] = useState<boolean | null>(null);
@@ -48,12 +51,16 @@ export default function RoomDetailScreen() {
   const lightOn = lightOptimistic ?? room?.state.lightOn ?? false;
   const lockOpen = lockOptimistic ?? room?.state.lockOpen ?? false;
 
+  // Khi trạng thái thật từ ESP32 về Supabase, bỏ trạng thái tạm trên máy hiện tại.
+  useEffect(() => setLightOptimistic(null), [room?.state.lightOn]);
+  useEffect(() => setLockOptimistic(null), [room?.state.lockOpen]);
+
   const handleToggleLight = async () => {
     if (!roomId || !user) return;
     const next = !lightOn;
     setLightOptimistic(next);
     try {
-      await send('light_01', next ? 'toggle_light_on' : 'toggle_light_off', user.id);
+      await send(`light_${roomId}`, next ? 'toggle_light_on' : 'toggle_light_off', user.id);
     } catch {
       setLightOptimistic(!next); // rollback
     }
@@ -64,7 +71,7 @@ export default function RoomDetailScreen() {
     const next = !lockOpen;
     setLockOptimistic(next);
     try {
-      await send('door_lock_01', next ? 'unlock_door' : 'lock_door', user.id);
+      await send(`door_lock_${roomId}`, next ? 'unlock_door' : 'lock_door', user.id);
     } catch {
       setLockOptimistic(!next); // rollback
     }
@@ -84,7 +91,7 @@ export default function RoomDetailScreen() {
 
     setIsAssigning(true);
     try {
-      await assignToRoom(roomId, selectedTenantId, user?.id);
+      await assignToRoom(roomId, selectedTenantId);
       await refetchRoom();
       setAssignModalVisible(false);
       Alert.alert('Thành công', 'Đã gán người thuê vào phòng thành công!');
@@ -95,28 +102,31 @@ export default function RoomDetailScreen() {
     }
   };
 
-  const handleRemoveTenant = () => {
+  const handleRemoveTenant = async () => {
     if (!roomId) return;
-    Alert.alert(
-      'Xác nhận trả phòng',
-      `Bạn có chắc muốn gỡ ${room?.tenantName ?? 'người thuê'} khỏi ${room?.name ?? `Phòng ${roomId}`}? (Tài khoản người thuê vẫn được giữ trong hệ thống)`,
-      [
-        { text: 'Huỷ', style: 'cancel' },
-        {
-          text: 'Gỡ khỏi phòng',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await removeFromRoom(roomId);
-              await refetchRoom();
-              Alert.alert('Thành công', 'Phòng đã được chuyển về trạng thái trống.');
-            } catch (e: any) {
-              Alert.alert('Lỗi', e.message ?? 'Không thể gỡ người thuê.');
-            }
-          },
-        },
-      ]
-    );
+    const message = `Bạn có chắc muốn gỡ ${room?.tenantName ?? 'người thuê'} khỏi ${room?.name ?? `Phòng ${roomId}`}? Tài khoản người thuê vẫn được giữ trong hệ thống.`;
+    const confirmed = Platform.OS === 'web'
+      ? globalThis.confirm(`Xác nhận trả phòng\n\n${message}`)
+      : await new Promise<boolean>((resolve) =>
+          Alert.alert(
+            'Xác nhận trả phòng',
+            message,
+            [
+              { text: 'Huỷ', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Gỡ khỏi phòng', style: 'destructive', onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) }
+          )
+        );
+
+    if (!confirmed) return;
+    try {
+      await removeFromRoom(roomId);
+      await Promise.all([refetchRoom(), refetchTenants()]);
+      Alert.alert('Thành công', 'Phòng đã được chuyển về trạng thái trống.');
+    } catch (e: any) {
+      Alert.alert('Lỗi', e.message ?? 'Không thể gỡ người thuê.');
+    }
   };
 
   if (roomLoading) {
@@ -138,7 +148,11 @@ export default function RoomDetailScreen() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View
+        style={[
+          styles.header,
+          Platform.OS === 'ios' && { paddingTop: insets.top + Spacing.sm },
+        ]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
@@ -201,6 +215,15 @@ export default function RoomDetailScreen() {
           </GlassCard>
         )}
 
+        {/* Gán hai ESP32 vào cùng phòng bằng MAC */}
+        <NodeManagementCard roomId={roomId} />
+
+        <AccessCredentialCard
+          roomId={roomId}
+          tenantId={room.tenantId}
+          tenantName={room.tenantName}
+        />
+
         {/* Environment */}
         {telemetry && (
           <EnvironmentCard
@@ -238,77 +261,55 @@ export default function RoomDetailScreen() {
             </View>
           )}
         </GlassCard>
+        {/* Trạng thái cửa vật lý từ MC-38 */}
+        <GlassCard>
+          <Text style={styles.sectionTitle}>Trạng thái cửa</Text>
 
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              paddingVertical: 8,
+            }}
+          >
+            <Ionicons
+              name={room.state.doorOpen ? 'enter-outline' : 'exit-outline'}
+              size={28}
+              color={room.state.doorOpen ? Colors.warning : Colors.success}
+            />
+
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: FontSize.md,
+                  fontWeight: '600',
+                }}
+              >
+                Cánh cửa
+              </Text>
+
+              <Text
+                style={{
+                  color: Colors.textSecondary,
+                  marginTop: 3,
+                }}
+              >
+                Trạng thái thực tế từ cảm biến MC-38
+              </Text>
+            </View>
+
+            <Badge
+              label={room.state.doorOpen ? 'Đang mở' : 'Đã đóng'}
+              variant={room.state.doorOpen ? 'warning' : 'success'}
+            />
+          </View>
+        </GlassCard>
         {/* Sensor Chart */}
         {sensorHistory.length > 0 && <SensorChart readings={sensorHistory} />}
 
-        {/* Recent Access Events */}
-        <GlassCard>
-          <Text style={styles.sectionTitle}>Truy cập gần đây</Text>
-          {accessEvents.length === 0 ? (
-            <Text style={styles.emptyText}>Chưa có lịch sử</Text>
-          ) : (
-            accessEvents.map((evt) => (
-              <View key={evt.id} style={styles.eventRow}>
-                <Ionicons
-                  name={evt.result === 'granted' ? 'checkmark-circle' : 'close-circle'}
-                  size={18}
-                  color={evt.result === 'granted' ? Colors.success : Colors.danger}
-                />
-                <View style={styles.eventContent}>
-                  <Text style={styles.eventUser}>{evt.userName}</Text>
-                  <Text style={styles.eventMeta}>
-                    {evt.method.toUpperCase()} • {formatTime(evt.timestamp)}
-                  </Text>
-                </View>
-                <Badge
-                  label={evt.result === 'granted' ? 'Cho phép' : 'Từ chối'}
-                  variant={evt.result === 'granted' ? 'success' : 'danger'}
-                />
-              </View>
-            ))
-          )}
-        </GlassCard>
-
-        {/* Recent Commands */}
-        <GlassCard>
-          <Text style={styles.sectionTitle}>Lệnh điều khiển gần đây</Text>
-          {commands.length === 0 ? (
-            <Text style={styles.emptyText}>Chưa có lệnh</Text>
-          ) : (
-            commands.slice(0, 5).map((cmd) => (
-              <View key={cmd.id} style={styles.eventRow}>
-                <Ionicons
-                  name={cmd.status === CommandStatus.COMPLETED ? 'checkmark-done' : 'hourglass'}
-                  size={18}
-                  color={
-                    cmd.status === CommandStatus.COMPLETED
-                      ? Colors.success
-                      : cmd.status === CommandStatus.FAILED
-                      ? Colors.danger
-                      : Colors.warning
-                  }
-                />
-                <View style={styles.eventContent}>
-                  <Text style={styles.eventUser}>{cmd.issuedByName}</Text>
-                  <Text style={styles.eventMeta}>
-                    {cmd.commandType.replace(/_/g, ' ')} • {formatTime(cmd.createdAt)}
-                  </Text>
-                </View>
-                <Badge
-                  label={cmd.status}
-                  variant={
-                    cmd.status === CommandStatus.COMPLETED
-                      ? 'success'
-                      : cmd.status === CommandStatus.FAILED
-                      ? 'danger'
-                      : 'warning'
-                  }
-                />
-              </View>
-            ))
-          )}
-        </GlassCard>
+        <RoomEventHistory roomId={roomId} limit={20} />
       </ScrollView>
 
       {/* Modal Chọn Người thuê để gán vào phòng */}
@@ -375,8 +376,8 @@ export default function RoomDetailScreen() {
                           isCurrent
                             ? 'Đang ở phòng này'
                             : isOther
-                            ? `Phòng ${t.assignedRoomId}`
-                            : 'Chưa có phòng'
+                              ? `Phòng ${t.assignedRoomId}`
+                              : 'Chưa có phòng'
                         }
                         variant={isCurrent ? 'info' : isOther ? 'neutral' : 'success'}
                       />
@@ -417,11 +418,6 @@ export default function RoomDetailScreen() {
       </Modal>
     </View>
   );
-}
-
-function formatTime(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')} ${d.getDate()}/${d.getMonth() + 1}`;
 }
 
 const styles = StyleSheet.create({
