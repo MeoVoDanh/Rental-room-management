@@ -42,4 +42,5 @@ app-example
 FE/ios
 FE/android
 
-.backend-server/.venv
+backend-server/.venv/
+.venv/
