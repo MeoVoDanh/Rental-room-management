@@ -25,7 +25,15 @@ import {
 export default function RoomsIndex() {
   const { user } = useAuth();
   const router = useRouter();
-  const { rooms, isLoading, error, refetch } = useRooms(user?.id);
+  const {
+    rooms,
+    isLoading,
+    error,
+    refetch,
+    removeRoomOptimistically,
+    restoreRoomOptimistically,
+    finishRoomRemoval,
+  } = useRooms(user?.id);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [newRoomId, setNewRoomId] = useState('');
@@ -58,7 +66,7 @@ export default function RoomsIndex() {
         await createRoom(user.id, newRoomId.trim(), displayName);
       }
       setModalVisible(false);
-      await refetch();
+      await refetch(false);
       Alert.alert('Thành công', editingRoom ? 'Đã cập nhật tên phòng.' : `Đã tạo Phòng ${newRoomId.trim()} thành công!`);
     } catch (e: any) {
       setCreateError(e.message ?? 'Không thể tạo phòng.');
@@ -84,10 +92,14 @@ export default function RoomsIndex() {
           { text: 'Xóa phòng', style: 'destructive', onPress: () => resolve(true) },
         ], { cancelable: true, onDismiss: () => resolve(false) }));
     if (!confirmed || !user?.id) return;
+    removeRoomOptimistically(room.id);
     try {
       await deleteRoom(user.id, room.id);
-      await refetch();
+      finishRoomRemoval(room.id);
+      // Đồng bộ nền bằng một request mới; không bật loading toàn trang.
+      await refetch(false);
     } catch (e: any) {
+      restoreRoomOptimistically(room);
       Alert.alert('Không thể xóa phòng', e.message ?? 'Vui lòng thử lại.');
     }
   };
@@ -116,7 +128,7 @@ export default function RoomsIndex() {
             <ActivityIndicator color={Colors.primary} size="large" />
             <Text style={styles.loadingText}>Đang tải danh sách phòng...</Text>
           </View>
-        ) : error ? (
+        ) : error && rooms.length === 0 ? (
           <Text style={styles.errorText}>{error}</Text>
         ) : rooms.length === 0 ? (
           <View style={styles.emptyWrap}>
