@@ -1,26 +1,65 @@
 import { supabase } from '@/lib/supabase';
 import { Room, RoomState } from '@/types';
+import { getIoTNodes, IoTNode } from '@/services/iotNodeService';
+
+type DeviceRow = {
+  room_id: string;
+  device_type: string;
+  relay_on?: boolean | null;
+  door_contact?: string | null;
+  lock_state?: string | null;
+  created_last_online?: string | null;
+};
+
+function isRecent(timestamp?: string | null): boolean {
+  if (!timestamp) return false;
+  const value = new Date(timestamp).getTime();
+  return Number.isFinite(value) && Date.now() - value < 60_000;
+}
+
+async function loadIoTNodes(): Promise<IoTNode[] | null> {
+  try {
+    return await getIoTNodes();
+  } catch {
+    // null nghĩa là backend tạm không truy cập được; khi đó dùng devices dự phòng.
+    return null;
+  }
+}
 
 // Map Supabase row → Room type
-function mapRoom(row: any, profile?: any, devices?: any[]): Room {
-  const hasLight = devices?.some((d) => d.device_type === 'light');
-  const hasDoor = devices?.some((d) => d.device_type === 'door_lock');
+function mapRoom(
+  row: any,
+  profile?: any,
+  devices: DeviceRow[] = [],
+  nodes: IoTNode[] | null = null
+): Room {
+  const lightDevice =
+    devices?.find((device) => device.device_type === 'light') ??
+    devices?.find((device) => device.device_type === 'sensor');
+  const doorDevice = devices?.find(
+    (device) => device.device_type === 'door_lock'
+  );
+  const nodeOnline = nodes !== null
+    ? nodes.some((node) => node.roomId === String(row.id) && node.isOnline)
+    : devices.some((device) => isRecent(device.created_last_online));
 
   const state: RoomState = {
-    doorOpen: false,
-    lockOpen: false,
-    lightOn: false,
+    // MC-38: OPEN nghĩa là cánh cửa đang mở
+    doorOpen: doorDevice?.door_contact === 'OPEN',
+
+    // Servo: UNLOCKED nghĩa là khóa đang mở
+    lockOpen: doorDevice?.lock_state === 'UNLOCKED',
+
+    // Trạng thái thật do node cảm biến gửi về, không gán cứng false.
+    lightOn: lightDevice?.relay_on === true,
     buzzerOn: false,
-    nodeOnline: devices?.some((d) => {
-      if (!d.created_last_online) return false;
-      const diff = Date.now() - new Date(d.created_last_online).getTime();
-      return diff < 5 * 60 * 1000; // online nếu heartbeat < 5 phút
-    }) ?? false,
+
+    nodeOnline,
   };
 
   return {
     id: row.id,
-    name: `Phòng ${row.id}`,
+    name: row.display_name || `Phòng ${row.id}`,
     roomNumber: row.id,
     landlordId: row.landlord_id,
     tenantId: row.tenant_id ?? undefined,
@@ -37,10 +76,12 @@ export async function getRooms(landlordId: string): Promise<Room[]> {
     .from('rooms')
     .select('*')
     .eq('landlord_id', landlordId)
+    .is('archived_at', null)
     .order('id');
 
   if (error) throw error;
   if (!rooms) return [];
+  if (rooms.length === 0) return [];
 
   // Fetch tenant profiles
   const tenantIds = rooms.map((r) => r.tenant_id).filter(Boolean);
@@ -59,10 +100,12 @@ export async function getRooms(landlordId: string): Promise<Room[]> {
 
   // Fetch devices
   const roomIds = rooms.map((r) => r.id);
-  const { data: devices } = await supabase
+  const { data: devices, error: devicesError } = await supabase
     .from('devices')
     .select('*')
     .in('room_id', roomIds);
+
+  if (devicesError) throw devicesError;
 
   const deviceMap: Record<string, any[]> = {};
   devices?.forEach((d) => {
@@ -70,8 +113,10 @@ export async function getRooms(landlordId: string): Promise<Room[]> {
     deviceMap[d.room_id].push(d);
   });
 
+  const nodes = await loadIoTNodes();
+
   return rooms.map((r) =>
-    mapRoom(r, profileMap[r.tenant_id], deviceMap[r.id])
+    mapRoom(r, profileMap[r.tenant_id], deviceMap[r.id], nodes)
   );
 }
 
@@ -81,6 +126,7 @@ export async function getRoomById(roomId: string): Promise<Room | null> {
     .from('rooms')
     .select('*')
     .eq('id', roomId)
+    .is('archived_at', null)
     .single();
 
   if (error) return null;
@@ -100,7 +146,9 @@ export async function getRoomById(roomId: string): Promise<Room | null> {
     .select('*')
     .eq('room_id', roomId);
 
-  return mapRoom(room, profile, devices ?? []);
+  const nodes = await loadIoTNodes();
+
+  return mapRoom(room, profile, devices ?? [], nodes);
 }
 
 /** Lấy phòng mà tenant đang thuê */
@@ -109,6 +157,7 @@ export async function getTenantRoom(tenantId: string): Promise<Room | null> {
     .from('rooms')
     .select('*')
     .eq('tenant_id', tenantId)
+    .is('archived_at', null)
     .single();
 
   if (error || !room) return null;
@@ -118,43 +167,42 @@ export async function getTenantRoom(tenantId: string): Promise<Room | null> {
     .select('*')
     .eq('room_id', room.id);
 
-  return mapRoom(room, null, devices ?? []);
+  const nodes = await loadIoTNodes();
+
+  return mapRoom(room, null, devices ?? [], nodes);
 }
 
 /**
  * Tạo phòng mới cho chủ trọ
  */
-export async function createRoom(landlordId: string, roomId: string): Promise<void> {
+const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000').replace(/\/$/, '');
+
+async function roomApi(path: string, options: RequestInit) {
+  const response = await fetch(`${API_URL}${path}`, options);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
+  return body;
+}
+
+export async function createRoom(landlordId: string, roomId: string, displayName?: string): Promise<void> {
   const cleanId = roomId.trim();
   if (!cleanId) throw new Error('Mã phòng không được để trống');
 
-  // 1. Kiểm tra phòng đã tồn tại chưa
-  const { data: existing } = await supabase
-    .from('rooms')
-    .select('id')
-    .eq('id', cleanId)
-    .maybeSingle();
-
-  if (existing) {
-    throw new Error(`Phòng ${cleanId} đã tồn tại trong hệ thống`);
-  }
-
-  // 2. Thêm phòng vào bảng rooms
-  const { error: roomError } = await supabase.from('rooms').insert({
-    id: cleanId,
-    landlord_id: landlordId,
-    status: 'vacant',
+  await roomApi('/api/rooms', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: landlordId, room_id: cleanId, display_name: displayName?.trim() || `Phòng ${cleanId}` }),
   });
+}
 
-  if (roomError) throw new Error(`Lỗi tạo phòng: ${roomError.message}`);
+export async function updateRoom(landlordId: string, roomId: string, displayName: string): Promise<void> {
+  await roomApi(`/api/rooms/${encodeURIComponent(roomId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: landlordId, display_name: displayName.trim() }),
+  });
+}
 
-  // 3. Tạo thiết bị mặc định cho phòng (đèn và khóa cửa)
-  const defaultDevices = [
-    { id: `light_${cleanId}`, room_id: cleanId, device_type: 'light' },
-    { id: `door_lock_${cleanId}`, room_id: cleanId, device_type: 'door_lock' },
-  ];
-
-  await supabase.from('devices').upsert(defaultDevices, { onConflict: 'id' });
+export async function deleteRoom(landlordId: string, roomId: string): Promise<void> {
+  await roomApi(`/api/rooms/${encodeURIComponent(roomId)}?actor_id=${encodeURIComponent(landlordId)}`, { method: 'DELETE' });
 }
 
 /**

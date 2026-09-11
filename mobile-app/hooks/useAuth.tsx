@@ -30,6 +30,8 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
 });
 
+let tenantRoomChannelSequence = 0;
+
 async function buildUser(supabaseUser: any): Promise<User> {
   // Lấy profile từ bảng profiles
   const { data: profile, error } = await supabase
@@ -45,7 +47,8 @@ async function buildUser(supabaseUser: any): Promise<User> {
     );
   }
 
-  const role = profile.role as UserRole;
+  // Dữ liệu cũ có thể dùng role "admin"; trên app xem admin là chủ trọ.
+  const role = profile.role === 'admin' ? UserRole.LANDLORD : profile.role as UserRole;
   let assignedRoomId: string | undefined;
 
   if (role === UserRole.TENANT) {
@@ -105,6 +108,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  // Phòng của người thuê có thể được chủ trọ gán/gỡ sau khi họ đã đăng nhập.
+  // Đồng bộ lại để các màn Điều khiển/Lịch sử không giữ assignedRoomId cũ.
+  useEffect(() => {
+    if (!user || user.role !== UserRole.TENANT) return;
+
+    const syncAssignedRoom = async () => {
+      const { data } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('tenant_id', user.id)
+        .is('archived_at', null)
+        .maybeSingle();
+      const nextRoomId = data?.id as string | undefined;
+      setUser((current) => {
+        if (!current || current.id !== user.id || current.assignedRoomId === nextRoomId) return current;
+        return { ...current, assignedRoomId: nextRoomId };
+      });
+    };
+
+    syncAssignedRoom();
+    const interval = setInterval(syncAssignedRoom, 3000);
+    tenantRoomChannelSequence += 1;
+    const channel = supabase
+      .channel(`tenant-room-${user.id}-${tenantRoomChannelSequence}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, syncAssignedRoom)
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, user?.role]);
 
   const login = useCallback(async (email: string, password: string): Promise<User> => {
     setAuthError(null);

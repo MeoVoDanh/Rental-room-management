@@ -7,6 +7,7 @@ export enum AlertSeverity {
 export enum AlertType {
   GAS_LEAK = 'gas_leak',
   HIGH_TEMPERATURE = 'high_temperature',
+  DOOR_OPEN_TOO_LONG = 'door_open_too_long',
   DOOR_FORCED = 'door_forced',
   NODE_OFFLINE = 'node_offline',
 }
@@ -29,4 +30,5 @@ export interface Alert {
   createdAt: string;
   acknowledgedBy?: string;
   acknowledgedAt?: string;
+  resolvedAt?: string;
 }

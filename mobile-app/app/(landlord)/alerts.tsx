@@ -9,7 +9,7 @@ import { Colors, Spacing, FontSize } from '@/constants/theme';
 
 export default function LandlordAlerts() {
   const { user } = useAuth();
-  const { alerts, isLoading, acknowledge } = useAlerts();
+  const { alerts, isLoading, error, acknowledge } = useAlerts();
 
   const handleAcknowledge = async (alertId: string) => {
     if (!user) return;
@@ -33,6 +33,15 @@ export default function LandlordAlerts() {
           <View style={styles.loadingContainer}>
             <ActivityIndicator color={Colors.primary} size="large" />
             <Text style={styles.loadingText}>Đang tải cảnh báo...</Text>
+          </View>
+        ) : error ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : alerts.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.emptyTitle}>Chưa có cảnh báo</Text>
+            <Text style={styles.loadingText}>Các phòng đang hoạt động an toàn.</Text>
           </View>
         ) : (
           <>
@@ -74,5 +83,15 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: FontSize.sm,
     color: Colors.textTertiary,
+  },
+  emptyTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  errorText: {
+    fontSize: FontSize.sm,
+    color: Colors.danger,
+    textAlign: 'center',
   },
 });

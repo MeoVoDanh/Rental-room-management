@@ -21,7 +21,7 @@ export function useSensor(roomId: string | undefined) {
     // Fetch lần đầu
     Promise.all([
       getLatestSensorReading(roomId),
-      getSensorHistory(roomId, 20),
+      getSensorHistory(roomId),
     ]).then(([latest, hist]) => {
       setTelemetry(latest);
       setHistory(hist);
@@ -43,11 +43,22 @@ export function useSensor(roomId: string | undefined) {
             timestamp: newReading.timestamp,
           },
         ];
-        return updated.slice(-20); // Giữ tối đa 20 bản ghi
+        return updated.slice(-288); // Giữ tối đa 288 bản ghi trong cửa sổ 24 giờ
       });
     });
 
+    // Polling dự phòng nếu Supabase Realtime chưa bật cho sensor_readings.
+    const interval = setInterval(async () => {
+      const [latest, hist] = await Promise.all([
+        getLatestSensorReading(roomId),
+        getSensorHistory(roomId),
+      ]);
+      setTelemetry(latest);
+      setHistory(hist);
+    }, 10000);
+
     return () => {
+      clearInterval(interval);
       unsubRef.current?.();
     };
   }, [roomId]);

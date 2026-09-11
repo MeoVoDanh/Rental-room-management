@@ -1,25 +1,26 @@
-import React, { useState } from 'react';
-import {
-  ScrollView,
-  View,
-  StyleSheet,
-  Text,
-  ActivityIndicator,
-  TouchableOpacity,
-  Modal,
-  TextInput,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Header, EmptyState } from '@/components/layout/LayoutComponents';
+import { EmptyState, Header } from '@/components/layout/LayoutComponents';
 import { RoomCard } from '@/components/room/RoomCard';
+import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useRooms } from '@/hooks/useRooms';
-import { createRoom } from '@/services/roomService';
-import { Colors, Spacing, FontSize, Radius } from '@/constants/theme';
+import { createRoom, deleteRoom, updateRoom } from '@/services/roomService';
+import { Room } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
+import { Href, useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function RoomsIndex() {
   const { user } = useAuth();
@@ -28,11 +29,15 @@ export default function RoomsIndex() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [newRoomId, setNewRoomId] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
   const handleOpenCreateModal = () => {
     setNewRoomId('');
+    setDisplayName('');
+    setEditingRoom(null);
     setCreateError('');
     setModalVisible(true);
   };
@@ -47,14 +52,43 @@ export default function RoomsIndex() {
     setCreateError('');
     setIsCreating(true);
     try {
-      await createRoom(user.id, newRoomId.trim());
+      if (editingRoom) {
+        await updateRoom(user.id, editingRoom.id, displayName);
+      } else {
+        await createRoom(user.id, newRoomId.trim(), displayName);
+      }
       setModalVisible(false);
       await refetch();
-      Alert.alert('Thành công', `Đã tạo Phòng ${newRoomId.trim()} thành công!`);
+      Alert.alert('Thành công', editingRoom ? 'Đã cập nhật tên phòng.' : `Đã tạo Phòng ${newRoomId.trim()} thành công!`);
     } catch (e: any) {
       setCreateError(e.message ?? 'Không thể tạo phòng.');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleOpenEditModal = (room: Room) => {
+    setEditingRoom(room);
+    setNewRoomId(room.id);
+    setDisplayName(room.name);
+    setCreateError('');
+    setModalVisible(true);
+  };
+
+  const handleArchiveRoom = async (room: Room) => {
+    const message = `${room.name} và toàn bộ lịch sử, dữ liệu cảm biến, cảnh báo, quyền RFID/PIN và thiết bị của phòng sẽ bị xóa vĩnh viễn. Node IoT chỉ được tháo gán để dùng lại.`;
+    const confirmed = Platform.OS === 'web'
+      ? globalThis.confirm(`Xóa phòng?\n\n${message}`)
+      : await new Promise<boolean>((resolve) => Alert.alert('Xóa phòng?', message, [
+          { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Xóa phòng', style: 'destructive', onPress: () => resolve(true) },
+        ], { cancelable: true, onDismiss: () => resolve(false) }));
+    if (!confirmed || !user?.id) return;
+    try {
+      await deleteRoom(user.id, room.id);
+      await refetch();
+    } catch (e: any) {
+      Alert.alert('Không thể xóa phòng', e.message ?? 'Vui lòng thử lại.');
     }
   };
 
@@ -104,7 +138,9 @@ export default function RoomsIndex() {
             <RoomCard
               key={room.id}
               room={room}
-              onPress={() => router.push(`/(landlord)/rooms/${room.id}`)}
+              onPress={() => router.push(`/rooms/${room.id}` as Href)}
+              onEdit={() => handleOpenEditModal(room)}
+              onDelete={() => handleArchiveRoom(room)}
             />
           ))
         )}
@@ -121,7 +157,7 @@ export default function RoomsIndex() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Thêm phòng trọ mới</Text>
+              <Text style={styles.modalTitle}>{editingRoom ? 'Cập nhật phòng' : 'Thêm phòng trọ mới'}</Text>
               <TouchableOpacity
                 onPress={() => setModalVisible(false)}
                 style={styles.closeBtn}>
@@ -137,8 +173,18 @@ export default function RoomsIndex() {
                 placeholderTextColor={Colors.textTertiary}
                 value={newRoomId}
                 onChangeText={setNewRoomId}
+                editable={!editingRoom}
                 autoFocus={true}
                 keyboardType="numeric"
+              />
+              <Text style={styles.inputLabel}>Tên hiển thị *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder={newRoomId ? `Phòng ${newRoomId}` : 'Ví dụ: Phòng 101'}
+                placeholderTextColor={Colors.textTertiary}
+                value={displayName}
+                onChangeText={setDisplayName}
+                maxLength={80}
               />
               <Text style={styles.hintText}>
                 Hệ thống sẽ tự động khởi tạo thiết bị điều khiển (đèn, khóa cửa) cho phòng này.
@@ -168,7 +214,7 @@ export default function RoomsIndex() {
                   ) : (
                     <>
                       <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                      <Text style={styles.confirmBtnText}>Tạo phòng</Text>
+                      <Text style={styles.confirmBtnText}>{editingRoom ? 'Lưu thay đổi' : 'Tạo phòng'}</Text>
                     </>
                   )}
                 </TouchableOpacity>

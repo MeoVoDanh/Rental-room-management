@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getAlerts, acknowledgeAlert, subscribeToAlerts } from '@/services/alertService';
-import { Alert as AlertType } from '@/types';
+import { Alert as AlertType, AlertStatus } from '@/types';
 
 export function useAlerts(roomId?: string) {
   const [alerts, setAlerts] = useState<AlertType[]>([]);
@@ -8,8 +8,8 @@ export function useAlerts(roomId?: string) {
   const [error, setError] = useState<string | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
 
-  const fetch = useCallback(async () => {
-    setIsLoading(true);
+  const fetch = useCallback(async (showLoading = false) => {
+    if (showLoading) setIsLoading(true);
     setError(null);
     try {
       const data = await getAlerts(roomId);
@@ -17,12 +17,12 @@ export function useAlerts(roomId?: string) {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [roomId]);
 
   useEffect(() => {
-    fetch();
+    fetch(true);
 
     // Realtime: alert mới hoặc update
     unsubRef.current = subscribeToAlerts((updated) => {
@@ -37,17 +37,28 @@ export function useAlerts(roomId?: string) {
       });
     }, roomId);
 
+    // Polling dự phòng nếu Supabase Realtime chưa được bật hoặc bị gián đoạn.
+    const timer = setInterval(() => fetch(false), 5000);
+
     return () => {
+      clearInterval(timer);
       unsubRef.current?.();
     };
   }, [fetch, roomId]);
 
   const acknowledge = useCallback(
     async (alertId: string, userId: string) => {
+      setAlerts((prev) =>
+        prev.map((alert) =>
+          alert.id === alertId
+            ? { ...alert, status: AlertStatus.ACKNOWLEDGED, acknowledgedBy: userId }
+            : alert
+        )
+      );
       await acknowledgeAlert(alertId, userId);
-      // Realtime sẽ tự cập nhật — không cần refetch thủ công
+      await fetch(false);
     },
-    []
+    [fetch]
   );
 
   return { alerts, isLoading, error, acknowledge, refetch: fetch };

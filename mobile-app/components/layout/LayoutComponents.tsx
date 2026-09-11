@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, FontSize, Spacing } from '@/constants/theme';
 
 interface HeaderProps {
@@ -11,8 +12,14 @@ interface HeaderProps {
 }
 
 export function Header({ title, subtitle, onLogout, rightElement }: HeaderProps) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        Platform.OS === 'ios' && { paddingTop: insets.top + Spacing.sm },
+      ]}>
       <View style={styles.left}>
         <Text style={styles.title}>{title}</Text>
         {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}

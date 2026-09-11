@@ -17,7 +17,9 @@ function mapEvent(row: any): AccessEvent {
     roomName: `Phòng ${row.room_id}`,
     method: row.method,
     result: row.is_success ? 'granted' : 'denied',
-    userName: row.user_name ?? 'Không rõ',
+    userName:
+      row.user_name ??
+      (row.is_success ? 'Người dùng chưa được gán' : 'Không xác định'),
     timestamp: row.created_at,
   };
 }

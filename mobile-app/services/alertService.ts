@@ -6,13 +6,15 @@ function mapAlert(row: any): Alert {
   const severityMap: Record<string, AlertSeverity> = {
     gas_leak: AlertSeverity.CRITICAL,
     high_temperature: AlertSeverity.WARNING,
+    door_open_too_long: AlertSeverity.WARNING,
     door_forced: AlertSeverity.CRITICAL,
     node_offline: AlertSeverity.WARNING,
   };
 
   const messageMap: Record<string, string> = {
-    gas_leak: `Phát hiện rò rỉ khí gas (giá trị: ${row.gas_value})`,
-    high_temperature: 'Nhiệt độ vượt ngưỡng an toàn',
+    gas_leak: `MQ-2 vượt ngưỡng an toàn (${row.measured_value ?? row.gas_value ?? '--'} ADC)`,
+    high_temperature: `Nhiệt độ vượt ngưỡng an toàn (${row.measured_value ?? '--'}°C)`,
+    door_open_too_long: 'Cửa đã mở quá thời gian cho phép',
     door_forced: 'Cửa bị mở cưỡng bức',
     node_offline: 'Thiết bị mất kết nối',
   };
@@ -24,10 +26,16 @@ function mapAlert(row: any): Alert {
     type: row.alert_type as AlertType,
     severity: severityMap[row.alert_type] ?? AlertSeverity.INFO,
     status: row.status as AlertStatus,
-    message: messageMap[row.alert_type] ?? row.alert_type,
-    data: { gasValue: row.gas_value, threshold: row.threshold },
+    message: row.message ?? messageMap[row.alert_type] ?? row.alert_type,
+    data: {
+      measuredValue: row.measured_value ?? row.gas_value,
+      threshold: row.threshold,
+      nodeDeviceId: row.node_device_id,
+    },
     createdAt: row.created_at,
     acknowledgedBy: row.resolved_by ?? undefined,
+    acknowledgedAt: row.acknowledged_at ?? undefined,
+    resolvedAt: row.resolved_at ?? undefined,
   };
 }
 
@@ -58,6 +66,7 @@ export async function acknowledgeAlert(
     .update({
       status: AlertStatus.ACKNOWLEDGED,
       resolved_by: userId,
+      acknowledged_at: new Date().toISOString(),
     })
     .eq('id', alertId);
 

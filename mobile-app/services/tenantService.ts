@@ -13,36 +13,24 @@ export interface TenantItem {
 /**
  * Lấy danh sách tất cả người thuê trong hệ thống
  */
-export async function getTenants(): Promise<TenantItem[]> {
-  // 1. Lấy tất cả profiles có role = tenant
-  const { data: profiles, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('role', UserRole.TENANT)
-    .order('created_at', { ascending: false });
+const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000').replace(/\/$/, '');
 
-  if (profileError) throw profileError;
-  if (!profiles) return [];
+async function tenantApi(path: string, options?: RequestInit) {
+  const response = await fetch(`${API_URL}${path}`, options);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
+  return body;
+}
 
-  // 2. Lấy thông tin phòng đang thuê từ bảng rooms
-  const { data: rooms } = await supabase
-    .from('rooms')
-    .select('id, tenant_id')
-    .not('tenant_id', 'is', null);
-
-  const roomMap: Record<string, string> = {};
-  rooms?.forEach((r) => {
-    if (r.tenant_id) {
-      roomMap[r.tenant_id] = r.id;
-    }
-  });
-
-  return profiles.map((p) => ({
-    id: p.id,
-    fullName: p.full_name ?? 'Chưa đặt tên',
-    phone: p.phone ?? '',
-    assignedRoomId: roomMap[p.id],
-    createdAt: p.created_at,
+export async function getTenants(landlordId: string): Promise<TenantItem[]> {
+  const body = await tenantApi(`/api/tenants?actor_id=${encodeURIComponent(landlordId)}`);
+  return (body.tenants ?? []).map((tenant: any) => ({
+    id: String(tenant.id),
+    fullName: tenant.full_name ?? 'Chưa đặt tên',
+    phone: tenant.phone ?? '',
+    email: tenant.email ?? '',
+    assignedRoomId: tenant.assigned_room_id ?? undefined,
+    createdAt: tenant.created_at,
   }));
 }
 
@@ -54,6 +42,7 @@ export async function createTenantOnly(params: {
   password: string;
   fullName: string;
   phone: string;
+  landlordId: string;
 }): Promise<{ tenantId: string }> {
   const { createClient } = await import('@supabase/supabase-js');
 
@@ -94,6 +83,8 @@ export async function createTenantOnly(params: {
     full_name: params.fullName.trim(),
     phone: params.phone.trim(),
     role: UserRole.TENANT,
+    landlord_id: params.landlordId,
+    email: params.email.trim().toLowerCase(),
   });
 
   if (profileError) {
@@ -103,41 +94,39 @@ export async function createTenantOnly(params: {
   return { tenantId };
 }
 
+export async function updateTenant(params: { actorId: string; tenantId: string; fullName: string; phone: string; email: string }): Promise<void> {
+  await tenantApi(`/api/tenants/${encodeURIComponent(params.tenantId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: params.actorId, full_name: params.fullName, phone: params.phone, email: params.email }),
+  });
+}
+
+export async function deleteTenant(actorId: string, tenantId: string): Promise<void> {
+  await tenantApi(`/api/tenants/${encodeURIComponent(tenantId)}?actor_id=${encodeURIComponent(actorId)}`, { method: 'DELETE' });
+}
+
 /**
  * Gán người thuê đã có sẵn vào phòng
  */
 export async function assignTenantToRoom(
   roomId: string,
   tenantId: string,
-  landlordId?: string
+  landlordId: string
 ): Promise<void> {
-  const payload: any = {
-    tenant_id: tenantId,
-    status: 'occupied',
-  };
-  if (landlordId) {
-    payload.landlord_id = landlordId;
-  }
-
-  const { error } = await supabase
-    .from('rooms')
-    .update(payload)
-    .eq('id', roomId);
-
-  if (error) throw new Error(`Lỗi khi gán người thuê vào phòng: ${error.message}`);
+  await tenantApi(`/api/rooms/${encodeURIComponent(roomId)}/tenant`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: landlordId, tenant_id: tenantId }),
+  });
 }
 
 /**
  * Gỡ người thuê khỏi phòng (khi trả phòng)
  */
-export async function removeTenantFromRoom(roomId: string): Promise<void> {
-  const { error } = await supabase
-    .from('rooms')
-    .update({
-      tenant_id: null,
-      status: 'vacant',
-    })
-    .eq('id', roomId);
-
-  if (error) throw new Error(`Lỗi khi gỡ người thuê khỏi phòng: ${error.message}`);
+export async function removeTenantFromRoom(roomId: string, landlordId: string): Promise<void> {
+  await tenantApi(`/api/rooms/${encodeURIComponent(roomId)}/tenant`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_id: landlordId, action: 'remove' }),
+  });
 }

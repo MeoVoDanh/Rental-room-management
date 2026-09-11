@@ -17,10 +17,13 @@ import { Header, EmptyState } from '@/components/layout/LayoutComponents';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/Badge';
 import { useTenants } from '@/hooks/useTenants';
+import { useAuth } from '@/hooks/useAuth';
+import { TenantItem } from '@/services/tenantService';
 import { Colors, Spacing, FontSize, Radius } from '@/constants/theme';
 
 export default function LandlordTenantsScreen() {
-  const { tenants, isLoading, error, refetch, createTenant } = useTenants();
+  const { user } = useAuth();
+  const { tenants, isLoading, error, createTenant, updateTenant, deleteTenant } = useTenants(user?.id);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -29,6 +32,7 @@ export default function LandlordTenantsScreen() {
   const [password, setPassword] = useState('123456');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [editingTenant, setEditingTenant] = useState<TenantItem | null>(null);
 
   const handleOpenModal = () => {
     setFullName('');
@@ -36,15 +40,27 @@ export default function LandlordTenantsScreen() {
     setPhone('');
     setPassword('123456');
     setCreateError('');
+    setEditingTenant(null);
+    setModalVisible(true);
+  };
+
+  const handleOpenEdit = (tenant: TenantItem) => {
+    setEditingTenant(tenant);
+    setFullName(tenant.fullName);
+    setEmail(tenant.email ?? '');
+    setPhone(tenant.phone);
+    setPassword('');
+    setCreateError('');
     setModalVisible(true);
   };
 
   const handleConfirmCreate = async () => {
-    if (!fullName.trim() || !email.trim() || !password.trim()) {
+    if (!user?.id) return;
+    if (!fullName.trim() || !email.trim() || (!editingTenant && !password.trim())) {
       setCreateError('Vui lòng nhập đầy đủ tên, email và mật khẩu');
       return;
     }
-    if (password.length < 6) {
+    if (!editingTenant && password.length < 6) {
       setCreateError('Mật khẩu tối thiểu 6 ký tự');
       return;
     }
@@ -52,15 +68,15 @@ export default function LandlordTenantsScreen() {
     setCreateError('');
     setIsCreating(true);
     try {
-      await createTenant({
-        email: email.trim(),
-        password,
-        fullName: fullName.trim(),
-        phone: phone.trim(),
-      });
+      if (editingTenant) {
+        await updateTenant({ actorId: user!.id, tenantId: editingTenant.id, email: email.trim(), fullName: fullName.trim(), phone: phone.trim() });
+      } else {
+        await createTenant({ email: email.trim(), password, fullName: fullName.trim(), phone: phone.trim(), landlordId: user!.id });
+      }
 
       setModalVisible(false);
-      Alert.alert(
+      if (editingTenant) Alert.alert('Thành công', 'Đã cập nhật thông tin người thuê.');
+      else Alert.alert(
         'Tạo người thuê thành công!',
         `Thông tin tài khoản:\n- Người thuê: ${fullName.trim()}\n- Email: ${email.trim()}\n- Mật khẩu: ${password}\n\nBạn có thể vào tab "Phòng" để gán phòng cho người thuê này bất kỳ lúc nào.`,
         [{ text: 'Đã hiểu' }]
@@ -70,6 +86,20 @@ export default function LandlordTenantsScreen() {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleDelete = async (tenant: TenantItem) => {
+    if (!user?.id) return;
+    const message = `${tenant.fullName} sẽ bị xóa tài khoản đăng nhập, thu hồi RFID/PIN và tự trả ${tenant.assignedRoomId ? `Phòng ${tenant.assignedRoomId}` : 'phòng nếu có'}. Thao tác này không thể khôi phục.`;
+    const confirmed = Platform.OS === 'web'
+      ? globalThis.confirm(`Xóa người thuê?\n\n${message}`)
+      : await new Promise<boolean>((resolve) => Alert.alert('Xóa người thuê?', message, [
+          { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Xóa', style: 'destructive', onPress: () => resolve(true) },
+        ], { cancelable: true, onDismiss: () => resolve(false) }));
+    if (!confirmed) return;
+    try { await deleteTenant(user.id, tenant.id); }
+    catch (e: any) { Alert.alert('Không thể xóa', e.message ?? 'Vui lòng thử lại'); }
   };
 
   return (
@@ -126,11 +156,16 @@ export default function LandlordTenantsScreen() {
                   <Text style={styles.tenantMeta}>
                     {tenant.phone ? `SĐT: ${tenant.phone}` : 'Chưa có số điện thoại'}
                   </Text>
+                  <Text style={styles.tenantMeta}>{tenant.email || 'Chưa có email hiển thị'}</Text>
                 </View>
                 <Badge
                   label={tenant.assignedRoomId ? `Phòng ${tenant.assignedRoomId}` : 'Chưa gán phòng'}
                   variant={tenant.assignedRoomId ? 'success' : 'warning'}
                 />
+                <View style={styles.rowActions}>
+                  <TouchableOpacity onPress={() => handleOpenEdit(tenant)}><Ionicons name="create-outline" size={20} color={Colors.primaryLight} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleDelete(tenant)}><Ionicons name="trash-outline" size={20} color={Colors.danger} /></TouchableOpacity>
+                </View>
               </View>
             </GlassCard>
           ))
@@ -149,8 +184,8 @@ export default function LandlordTenantsScreen() {
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>Tạo tài khoản người thuê</Text>
-                <Text style={styles.modalSubtitle}>Tạo tài khoản trước, gán phòng sau</Text>
+                <Text style={styles.modalTitle}>{editingTenant ? 'Cập nhật người thuê' : 'Tạo tài khoản người thuê'}</Text>
+                <Text style={styles.modalSubtitle}>{editingTenant ? 'Thay đổi thông tin hồ sơ' : 'Tạo tài khoản trước, gán phòng sau'}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setModalVisible(false)}
@@ -201,8 +236,7 @@ export default function LandlordTenantsScreen() {
                 />
               </View>
 
-              {/* Mật khẩu */}
-              <View>
+              {!editingTenant && <View>
                 <Text style={styles.inputLabel}>Mật khẩu đăng nhập ban đầu *</Text>
                 <TextInput
                   style={styles.modalInput}
@@ -214,7 +248,7 @@ export default function LandlordTenantsScreen() {
                 <Text style={styles.hintText}>
                   Người thuê dùng Email & Mật khẩu này để đăng nhập vào ứng dụng.
                 </Text>
-              </View>
+              </View>}
 
               {createError ? (
                 <View style={styles.modalErrorRow}>
@@ -240,7 +274,7 @@ export default function LandlordTenantsScreen() {
                   ) : (
                     <>
                       <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                      <Text style={styles.confirmBtnText}>Tạo tài khoản</Text>
+                      <Text style={styles.confirmBtnText}>{editingTenant ? 'Lưu thay đổi' : 'Tạo tài khoản'}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -321,6 +355,7 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     marginTop: 2,
   },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 14, marginLeft: 6 },
   emptyWrap: {
     alignItems: 'center',
     gap: 8,

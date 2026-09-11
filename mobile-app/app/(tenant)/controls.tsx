@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Header } from '@/components/layout/LayoutComponents';
@@ -23,12 +23,15 @@ export default function TenantControls() {
   const lightOn = lightOptimistic ?? room?.state.lightOn ?? false;
   const lockOpen = lockOptimistic ?? room?.state.lockOpen ?? false;
 
+  useEffect(() => setLightOptimistic(null), [room?.state.lightOn]);
+  useEffect(() => setLockOptimistic(null), [room?.state.lockOpen]);
+
   const handleToggleLight = async () => {
     if (!roomId || !user) return;
     const next = !lightOn;
     setLightOptimistic(next);
     try {
-      await send('light_01', next ? 'toggle_light_on' : 'toggle_light_off', user.id);
+      await send(`light_${roomId}`, next ? 'toggle_light_on' : 'toggle_light_off', user.id);
     } catch {
       setLightOptimistic(!next);
     }
@@ -39,7 +42,7 @@ export default function TenantControls() {
     const next = !lockOpen;
     setLockOptimistic(next);
     try {
-      await send('door_lock_01', next ? 'unlock_door' : 'lock_door', user.id);
+      await send(`door_lock_${roomId}`, next ? 'unlock_door' : 'lock_door', user.id);
     } catch {
       setLockOptimistic(!next);
     }
@@ -53,7 +56,19 @@ export default function TenantControls() {
     );
   }
 
-  if (!room) return null;
+  if (!room) {
+    return (
+      <View style={styles.container}>
+        <Header title="Điều khiển" subtitle="Chưa được gán phòng" />
+        <View style={[styles.centered, { flex: 1, padding: Spacing.lg }]}>
+          <Ionicons name="home-outline" size={48} color={Colors.textTertiary} />
+          <Text style={styles.noRoomText}>
+            Chủ trọ cần gán tài khoản của bạn vào một phòng trước khi điều khiển thiết bị.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -62,16 +77,6 @@ export default function TenantControls() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
-
-        {/* Info note */}
-        <GlassCard accent={Colors.primary}>
-          <View style={styles.infoRow}>
-            <Ionicons name="information-circle" size={20} color={Colors.primary} />
-            <Text style={styles.infoText}>
-              Trạng thái cập nhật sau khi nhận xác nhận từ thiết bị IoT qua Supabase.
-            </Text>
-          </View>
-        </GlassCard>
 
         {/* Controls */}
         <Text style={styles.sectionTitle}>Thiết bị trong phòng</Text>
@@ -120,26 +125,7 @@ export default function TenantControls() {
           </View>
         </GlassCard>
 
-        {/* Command Status Legend */}
-        <GlassCard>
-          <Text style={styles.sectionTitle}>Trạng thái lệnh</Text>
-          <View style={styles.legendGrid}>
-            <LegendItem color={Colors.warning} label="Đang gửi" />
-            <LegendItem color={Colors.primary} label="Đã gửi" />
-            <LegendItem color={Colors.success} label="Hoàn thành" />
-            <LegendItem color={Colors.danger} label="Thất bại" />
-          </View>
-        </GlassCard>
       </ScrollView>
-    </View>
-  );
-}
-
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text style={styles.legendText}>{label}</Text>
     </View>
   );
 }
@@ -153,8 +139,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing['3xl'],
     gap: 12,
   },
-  infoRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  infoText: { flex: 1, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 20 },
   sectionTitle: { fontSize: FontSize.md, fontWeight: '600', color: Colors.text, marginBottom: 4 },
   controlGrid: { flexDirection: 'row', gap: 12 },
   sendingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -163,8 +147,5 @@ const styles = StyleSheet.create({
   doorItem: { flex: 1, alignItems: 'center', gap: 8, padding: 12, borderRadius: 12, backgroundColor: Colors.backgroundTertiary },
   doorIcon: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
   doorLabel: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  legendGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  noRoomText: { marginTop: 12, color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', lineHeight: 20 },
 });

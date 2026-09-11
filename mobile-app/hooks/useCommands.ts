@@ -12,8 +12,8 @@ export function useCommands(roomId?: string) {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
-    setIsLoading(true);
+  const fetch = useCallback(async (showLoading = false) => {
+    if (showLoading) setIsLoading(true);
     setError(null);
     try {
       const data = roomId
@@ -23,12 +23,16 @@ export function useCommands(roomId?: string) {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [roomId]);
 
   useEffect(() => {
-    fetch();
+    fetch(true);
+
+    // Tự lấy trạng thái ACK (pending -> completed) sau khi ESP32 xử lý lệnh.
+    const interval = setInterval(() => fetch(false), 2000);
+    return () => clearInterval(interval);
   }, [fetch]);
 
   const send = useCallback(
