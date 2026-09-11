@@ -19,8 +19,11 @@ export function RoomCard({ room, onPress, onEdit, onDelete }: RoomCardProps) {
   const telemetry = MOCK_TELEMETRY[room.id];
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
-      <GlassCard style={styles.card}>
+    <GlassCard style={styles.card}>
+      <TouchableOpacity
+        style={styles.content}
+        onPress={onPress}
+        activeOpacity={0.7}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.titleRow}>
@@ -68,20 +71,21 @@ export function RoomCard({ room, onPress, onEdit, onDelete }: RoomCardProps) {
           </View>
         )}
 
-        {(onEdit || onDelete) && (
-          <View style={styles.actions}>
-            {onEdit && <TouchableOpacity style={styles.editButton} onPress={(event) => { event.stopPropagation(); onEdit(); }}>
-              <Ionicons name="create-outline" size={16} color={Colors.primaryLight} />
-              <Text style={styles.editText}>Cập nhật</Text>
-            </TouchableOpacity>}
-            {onDelete && <TouchableOpacity style={styles.deleteButton} onPress={(event) => { event.stopPropagation(); onDelete(); }}>
-              <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-              <Text style={styles.deleteText}>Xóa phòng</Text>
-            </TouchableOpacity>}
-          </View>
-        )}
-      </GlassCard>
-    </TouchableOpacity>
+      </TouchableOpacity>
+
+      {(onEdit || onDelete) && (
+        <View style={styles.actions}>
+          {onEdit && <TouchableOpacity style={styles.editButton} onPress={onEdit}>
+            <Ionicons name="create-outline" size={16} color={Colors.primaryLight} />
+            <Text style={styles.editText}>Cập nhật</Text>
+          </TouchableOpacity>}
+          {onDelete && <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
+            <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+            <Text style={styles.deleteText}>Xóa phòng</Text>
+          </TouchableOpacity>}
+        </View>
+      )}
+    </GlassCard>
   );
 }
 
@@ -124,6 +128,9 @@ function TelemetryItem({
 
 const styles = StyleSheet.create({
   card: {
+    gap: 12,
+  },
+  content: {
     gap: 12,
   },
   header: {

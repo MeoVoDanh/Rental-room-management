@@ -35,7 +35,13 @@ export default function RoomDetailScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const { room, isLoading: roomLoading, refetch: refetchRoom } = useRoom(roomId);
+  const {
+    room,
+    isLoading: roomLoading,
+    refetch: refetchRoom,
+    setRoomOptimistically,
+    finishOptimisticUpdate,
+  } = useRoom(roomId);
   const { telemetry, history: sensorHistory } = useSensor(roomId);
   const { isSending, send } = useCommands(roomId);
   const { tenants, assignToRoom, removeFromRoom, refetch: refetchTenants } = useTenants(user?.id);
@@ -47,6 +53,7 @@ export default function RoomDetailScreen() {
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isRemovingTenant, setIsRemovingTenant] = useState(false);
 
   const lightOn = lightOptimistic ?? room?.state.lightOn ?? false;
   const lockOpen = lockOptimistic ?? room?.state.lockOpen ?? false;
@@ -79,7 +86,7 @@ export default function RoomDetailScreen() {
 
   const handleOpenAssignModal = async () => {
     setSelectedTenantId(null);
-    await refetchTenants();
+    await refetchTenants(false);
     setAssignModalVisible(true);
   };
 
@@ -92,7 +99,7 @@ export default function RoomDetailScreen() {
     setIsAssigning(true);
     try {
       await assignToRoom(roomId, selectedTenantId);
-      await refetchRoom();
+      await refetchRoom(false);
       setAssignModalVisible(false);
       Alert.alert('Thành công', 'Đã gán người thuê vào phòng thành công!');
     } catch (e: any) {
@@ -103,7 +110,7 @@ export default function RoomDetailScreen() {
   };
 
   const handleRemoveTenant = async () => {
-    if (!roomId) return;
+    if (!roomId || !room || isRemovingTenant) return;
     const message = `Bạn có chắc muốn gỡ ${room?.tenantName ?? 'người thuê'} khỏi ${room?.name ?? `Phòng ${roomId}`}? Tài khoản người thuê vẫn được giữ trong hệ thống.`;
     const confirmed = Platform.OS === 'web'
       ? globalThis.confirm(`Xác nhận trả phòng\n\n${message}`)
@@ -120,12 +127,20 @@ export default function RoomDetailScreen() {
         );
 
     if (!confirmed) return;
+    const previousRoom = room;
+    setIsRemovingTenant(true);
+    setRoomOptimistically({ ...room, tenantId: undefined, tenantName: undefined });
     try {
       await removeFromRoom(roomId);
-      await Promise.all([refetchRoom(), refetchTenants()]);
+      finishOptimisticUpdate();
+      await refetchRoom(false);
       Alert.alert('Thành công', 'Phòng đã được chuyển về trạng thái trống.');
     } catch (e: any) {
+      setRoomOptimistically(previousRoom);
+      finishOptimisticUpdate();
       Alert.alert('Lỗi', e.message ?? 'Không thể gỡ người thuê.');
+    } finally {
+      setIsRemovingTenant(false);
     }
   };
 
@@ -185,8 +200,9 @@ export default function RoomDetailScreen() {
                 <Text style={styles.tenantLabel}>Người thuê hiện tại • Đang ở</Text>
               </View>
               <TouchableOpacity
-                style={styles.removeTenantBtn}
-                onPress={handleRemoveTenant}>
+                style={[styles.removeTenantBtn, isRemovingTenant && { opacity: 0.55 }]}
+                onPress={handleRemoveTenant}
+                disabled={isRemovingTenant}>
                 <Ionicons name="exit-outline" size={16} color={Colors.danger} />
                 <Text style={styles.removeTenantText}>Trả phòng</Text>
               </TouchableOpacity>
@@ -344,7 +360,7 @@ export default function RoomDetailScreen() {
                   <Ionicons name="people-outline" size={36} color={Colors.textTertiary} />
                   <Text style={styles.emptyTenantsTitle}>Chưa có người thuê nào trong hệ thống</Text>
                   <Text style={styles.emptyTenantsText}>
-                    Vui lòng vào tab "Người thuê" để tạo tài khoản người thuê trước.
+                    Vui lòng vào tab “Người thuê” để tạo tài khoản người thuê trước.
                   </Text>
                 </View>
               ) : (
