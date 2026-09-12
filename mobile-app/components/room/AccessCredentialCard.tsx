@@ -43,13 +43,19 @@ export function AccessCredentialCard({ roomId, tenantId, tenantName }: Props) {
 
   const save = async () => {
     if (!user?.id || !tenantId) return;
-    const cleanValue = value.trim();
+    const cleanValue = type === 'rfid'
+      ? value.replace(/[:\-\s]/g, '').toUpperCase()
+      : value.trim();
     if (!cleanValue) {
       Alert.alert('Thiếu thông tin', `Vui lòng nhập ${type === 'rfid' ? 'UID thẻ RFID' : 'mã PIN'}.`);
       return;
     }
     if (type === 'pin' && !/^\d{4,8}$/.test(cleanValue)) {
       Alert.alert('PIN không hợp lệ', 'PIN phải gồm từ 4 đến 8 chữ số.');
+      return;
+    }
+    if (type === 'rfid' && !/^[0-9A-F]+$/.test(cleanValue)) {
+      Alert.alert('RFID không hợp lệ', 'UID RFID chỉ được gồm các ký tự 0–9 và A–F.');
       return;
     }
     setSaving(true);

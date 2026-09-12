@@ -205,6 +205,29 @@ export async function deleteRoom(landlordId: string, roomId: string): Promise<vo
   await roomApi(`/api/rooms/${encodeURIComponent(roomId)}?actor_id=${encodeURIComponent(landlordId)}`, { method: 'DELETE' });
 }
 
+export interface RoomDeletionStatus {
+  canDelete: boolean;
+  hasTenant: boolean;
+  hasNodes: boolean;
+  message?: string;
+}
+
+export async function getRoomDeletionStatus(
+  landlordId: string,
+  roomId: string
+): Promise<RoomDeletionStatus> {
+  const data = await roomApi(
+    `/api/rooms/${encodeURIComponent(roomId)}?actor_id=${encodeURIComponent(landlordId)}`,
+    { method: 'GET' }
+  );
+  return {
+    canDelete: data.can_delete === true,
+    hasTenant: data.has_tenant === true,
+    hasNodes: data.has_nodes === true,
+    message: data.message ?? undefined,
+  };
+}
+
 /**
  * Chỉ Chủ trọ mới có quyền tạo tài khoản cho người thuê.
  * Sử dụng instance client riêng không lưu session để không logout Chủ trọ hiện tại.
