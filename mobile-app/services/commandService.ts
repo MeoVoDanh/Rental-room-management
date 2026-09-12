@@ -1,9 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { ControlCommand, CommandStatus } from '@/types';
-
-const API_URL = (
-  process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000'
-).replace(/\/$/, '');
+import { apiRequest } from './apiClient';
 
 function mapCommand(row: any): ControlCommand {
   return {
@@ -28,7 +25,7 @@ export async function sendCommand(
   userId: string
 ): Promise<ControlCommand> {
   // Backend vừa lưu command vào Supabase vừa publish xuống MQTT.
-  const response = await fetch(`${API_URL}/api/control`, {
+  const body = await apiRequest('/api/control', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -38,10 +35,6 @@ export async function sendCommand(
       user_id: userId,
     }),
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
-  }
   return mapCommand(body.command);
 }
 

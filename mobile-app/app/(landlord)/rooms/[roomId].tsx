@@ -1,4 +1,3 @@
-import { DeviceToggle } from '@/components/room/DeviceToggle';
 import { AccessCredentialCard } from '@/components/room/AccessCredentialCard';
 import { NodeManagementCard } from '@/components/room/NodeManagementCard';
 import { RoomEventHistory } from '@/components/room/RoomEventHistory';
@@ -9,13 +8,12 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
-import { useCommands } from '@/hooks/useCommands';
 import { useRoom } from '@/hooks/useRoom';
 import { useSensor } from '@/hooks/useSensor';
 import { useTenants } from '@/hooks/useTenants';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -43,46 +41,13 @@ export default function RoomDetailScreen() {
     finishOptimisticUpdate,
   } = useRoom(roomId);
   const { telemetry, history: sensorHistory } = useSensor(roomId);
-  const { isSending, send } = useCommands(roomId);
   const { tenants, assignToRoom, removeFromRoom, refetch: refetchTenants } = useTenants(user?.id);
-
-  const [lightOptimistic, setLightOptimistic] = useState<boolean | null>(null);
-  const [lockOptimistic, setLockOptimistic] = useState<boolean | null>(null);
 
   // Modal chọn người thuê để gán vào phòng
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isRemovingTenant, setIsRemovingTenant] = useState(false);
-
-  const lightOn = lightOptimistic ?? room?.state.lightOn ?? false;
-  const lockOpen = lockOptimistic ?? room?.state.lockOpen ?? false;
-
-  // Khi trạng thái thật từ ESP32 về Supabase, bỏ trạng thái tạm trên máy hiện tại.
-  useEffect(() => setLightOptimistic(null), [room?.state.lightOn]);
-  useEffect(() => setLockOptimistic(null), [room?.state.lockOpen]);
-
-  const handleToggleLight = async () => {
-    if (!roomId || !user) return;
-    const next = !lightOn;
-    setLightOptimistic(next);
-    try {
-      await send(`light_${roomId}`, next ? 'toggle_light_on' : 'toggle_light_off', user.id);
-    } catch {
-      setLightOptimistic(!next); // rollback
-    }
-  };
-
-  const handleToggleLock = async () => {
-    if (!roomId || !user) return;
-    const next = !lockOpen;
-    setLockOptimistic(next);
-    try {
-      await send(`door_lock_${roomId}`, next ? 'unlock_door' : 'lock_door', user.id);
-    } catch {
-      setLockOptimistic(!next); // rollback
-    }
-  };
 
   const handleOpenAssignModal = async () => {
     setSelectedTenantId(null);
@@ -251,31 +216,30 @@ export default function RoomDetailScreen() {
           />
         )}
 
-        {/* Device Controls */}
+        {/* Admin chỉ được xem trạng thái, không được thao tác thiết bị. */}
         <GlassCard>
-          <Text style={styles.sectionTitle}>Điều khiển thiết bị</Text>
+          <Text style={styles.sectionTitle}>Trạng thái thiết bị</Text>
           <View style={styles.deviceGrid}>
-            <DeviceToggle
-              icon="bulb"
-              label="Đèn"
-              isOn={lightOn}
-              onToggle={handleToggleLight}
-              disabled={isSending}
-            />
-            <DeviceToggle
-              icon={lockOpen ? 'lock-open' : 'lock-closed'}
-              label={lockOpen ? 'Mở khóa' : 'Đã khóa'}
-              isOn={lockOpen}
-              onToggle={handleToggleLock}
-              disabled={isSending}
-            />
-          </View>
-          {isSending && (
-            <View style={styles.sendingRow}>
-              <ActivityIndicator size="small" color={Colors.primary} />
-              <Text style={styles.sendingText}>Đang gửi lệnh...</Text>
+            <View style={[styles.readOnlyDevice, room.state.lightOn && styles.readOnlyDeviceActive]}>
+              <Ionicons name="bulb" size={28} color={room.state.lightOn ? Colors.primary : Colors.textTertiary} />
+              <Text style={styles.readOnlyLabel}>Đèn</Text>
+              <Text style={[styles.readOnlyValue, room.state.lightOn && styles.readOnlyValueActive]}>
+                {room.state.lightOn ? 'Đang bật' : 'Đã tắt'}
+              </Text>
             </View>
-          )}
+            <View style={[styles.readOnlyDevice, room.state.lockOpen && styles.readOnlyDeviceActive]}>
+              <Ionicons
+                name={room.state.lockOpen ? 'lock-open' : 'lock-closed'}
+                size={28}
+                color={room.state.lockOpen ? Colors.warning : Colors.success}
+              />
+              <Text style={styles.readOnlyLabel}>Khóa cửa</Text>
+              <Text style={[styles.readOnlyValue, { color: room.state.lockOpen ? Colors.warning : Colors.success }]}>
+                {room.state.lockOpen ? 'Đang mở' : 'Đã khóa'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.readOnlyHint}>Chỉ người thuê được gán vào phòng mới có quyền điều khiển.</Text>
         </GlassCard>
         {/* Trạng thái cửa vật lý từ MC-38 */}
         <GlassCard>
@@ -575,15 +539,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
-  sendingRow: {
-    flexDirection: 'row',
+  readOnlyDevice: {
+    flex: 1,
     alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
+    gap: 7,
+    padding: 16,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.glass,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
   },
-  sendingText: {
+  readOnlyDeviceActive: {
+    backgroundColor: Colors.primaryMuted,
+    borderColor: Colors.primary + '40',
+  },
+  readOnlyLabel: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
+  readOnlyValue: { fontSize: FontSize.sm, color: Colors.textTertiary, fontWeight: '700' },
+  readOnlyValueActive: { color: Colors.primary },
+  readOnlyHint: {
     fontSize: FontSize.xs,
     color: Colors.textTertiary,
+    textAlign: 'center',
+    marginTop: 12,
   },
   eventRow: {
     flexDirection: 'row',

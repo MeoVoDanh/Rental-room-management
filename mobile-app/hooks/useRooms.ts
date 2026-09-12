@@ -78,7 +78,7 @@ export function useRooms(landlordId: string | undefined) {
       .subscribe();
 
     // Polling dự phòng khi Realtime chưa bật publication hoặc mạng điện thoại vừa nối lại.
-    const interval = setInterval(() => fetch(false), 3000);
+    const interval = setInterval(() => fetch(false), 15_000);
     const appStateSubscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') fetch(false);
     });

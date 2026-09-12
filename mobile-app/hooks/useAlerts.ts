@@ -38,7 +38,7 @@ export function useAlerts(roomId?: string) {
     }, roomId);
 
     // Polling dự phòng nếu Supabase Realtime chưa được bật hoặc bị gián đoạn.
-    const timer = setInterval(() => fetch(false), 5000);
+    const timer = setInterval(() => fetch(false), 15_000);
 
     return () => {
       clearInterval(timer);

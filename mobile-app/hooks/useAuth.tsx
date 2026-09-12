@@ -138,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     syncAssignedRooms();
-    const interval = setInterval(syncAssignedRooms, 3000);
+    const interval = setInterval(syncAssignedRooms, 15_000);
     tenantRoomChannelSequence += 1;
     const channel = supabase
       .channel(`tenant-room-${user.id}-${tenantRoomChannelSequence}`)

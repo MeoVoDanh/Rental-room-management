@@ -46,7 +46,7 @@ export function useTenants(landlordId?: string) {
         () => fetchTenants(false)
       )
       .subscribe();
-    const interval = setInterval(() => fetchTenants(false), 3000);
+    const interval = setInterval(() => fetchTenants(false), 15_000);
     const appStateSubscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') fetchTenants(false);
     });

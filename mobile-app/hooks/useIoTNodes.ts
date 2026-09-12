@@ -28,7 +28,7 @@ export function useIoTNodes(roomId?: string) {
 
   useEffect(() => {
     refetch();
-    const timer = setInterval(refetch, 5000);
+    const timer = setInterval(refetch, 15_000);
     return () => clearInterval(timer);
   }, [refetch]);
 

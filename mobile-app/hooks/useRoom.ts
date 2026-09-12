@@ -76,7 +76,7 @@ export function useRoom(roomId: string | undefined) {
 
     const interval = setInterval(async () => {
       await fetch(false);
-    }, 2000);
+    }, 15_000);
 
     return () => {
       clearInterval(interval);

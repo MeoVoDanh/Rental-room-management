@@ -1,4 +1,5 @@
 import { IoTNode } from './iotNodeService';
+import { apiRequest } from './apiClient';
 
 export interface NodeKit {
   id: string;
@@ -6,15 +7,6 @@ export interface NodeKit {
   roomId?: string;
   door: IoTNode;
   sensor: IoTNode;
-}
-
-const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000').replace(/\/$/, '');
-
-async function api(path: string, options?: RequestInit) {
-  const response = await fetch(`${API_URL}${path}`, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
-  return body;
 }
 
 function mapNode(row: any): IoTNode {
@@ -37,13 +29,13 @@ function mapKit(row: any): NodeKit {
 }
 
 export async function getNodeKits(actorId: string): Promise<NodeKit[]> {
-  const body = await api(`/api/node-kits?actor_id=${encodeURIComponent(actorId)}`);
+  const body = await apiRequest(`/api/node-kits?actor_id=${encodeURIComponent(actorId)}`);
   return (body.kits ?? []).map(mapKit);
 }
 
 export async function saveNodeKit(params: { actorId: string; id?: string; name: string; doorMac: string; sensorMac: string }) {
   const path = params.id ? `/api/node-kits/${encodeURIComponent(params.id)}` : '/api/node-kits';
-  const body = await api(path, {
+  const body = await apiRequest(path, {
     method: params.id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actor_id: params.actorId, name: params.name, door_mac: params.doorMac, sensor_mac: params.sensorMac }),
   });
@@ -51,16 +43,16 @@ export async function saveNodeKit(params: { actorId: string; id?: string; name: 
 }
 
 export async function deleteNodeKit(actorId: string, kitId: string) {
-  await api(`/api/node-kits/${encodeURIComponent(kitId)}?actor_id=${encodeURIComponent(actorId)}`, { method: 'DELETE' });
+  await apiRequest(`/api/node-kits/${encodeURIComponent(kitId)}?actor_id=${encodeURIComponent(actorId)}`, { method: 'DELETE' });
 }
 
 export async function assignNodeKit(actorId: string, kitId: string, roomId: string) {
-  await api(`/api/node-kits/${encodeURIComponent(kitId)}/room`, {
+  await apiRequest(`/api/node-kits/${encodeURIComponent(kitId)}/room`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actor_id: actorId, room_id: roomId }),
   });
 }
 
 export async function unassignNodeKit(actorId: string, kitId: string) {
-  await api(`/api/node-kits/${encodeURIComponent(kitId)}/room?actor_id=${encodeURIComponent(actorId)}`, { method: 'DELETE' });
+  await apiRequest(`/api/node-kits/${encodeURIComponent(kitId)}/room?actor_id=${encodeURIComponent(actorId)}`, { method: 'DELETE' });
 }
