@@ -3,7 +3,7 @@ import { RoomCard } from '@/components/room/RoomCard';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useRooms } from '@/hooks/useRooms';
-import { createRoom, deleteRoom, updateRoom } from '@/services/roomService';
+import { createRoom, deleteRoom, getRoomDeletionStatus, updateRoom } from '@/services/roomService';
 import { Room } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { Href, useRouter } from 'expo-router';
@@ -84,14 +84,32 @@ export default function RoomsIndex() {
   };
 
   const handleArchiveRoom = async (room: Room) => {
-    const message = `${room.name} và toàn bộ lịch sử, dữ liệu cảm biến, cảnh báo, quyền RFID/PIN và thiết bị của phòng sẽ bị xóa vĩnh viễn. Node IoT chỉ được tháo gán để dùng lại.`;
+    if (!user?.id) return;
+
+    try {
+      const status = await getRoomDeletionStatus(user.id, room.id);
+      if (!status.canDelete) {
+        const blockerMessage = status.message ?? 'Phòng chưa đủ điều kiện để xóa.';
+        if (Platform.OS === 'web') {
+          globalThis.alert(blockerMessage);
+        } else {
+          Alert.alert('Chưa thể xóa phòng', blockerMessage);
+        }
+        return;
+      }
+    } catch (e: any) {
+      Alert.alert('Không thể kiểm tra phòng', e.message ?? 'Vui lòng thử lại.');
+      return;
+    }
+
+    const message = `${room.name} và toàn bộ lịch sử, dữ liệu cảm biến, cảnh báo và quyền RFID/PIN sẽ bị xóa vĩnh viễn.`;
     const confirmed = Platform.OS === 'web'
       ? globalThis.confirm(`Xóa phòng?\n\n${message}`)
       : await new Promise<boolean>((resolve) => Alert.alert('Xóa phòng?', message, [
           { text: 'Hủy', style: 'cancel', onPress: () => resolve(false) },
           { text: 'Xóa phòng', style: 'destructive', onPress: () => resolve(true) },
         ], { cancelable: true, onDismiss: () => resolve(false) }));
-    if (!confirmed || !user?.id) return;
+    if (!confirmed) return;
     removeRoomOptimistically(room.id);
     try {
       await deleteRoom(user.id, room.id);

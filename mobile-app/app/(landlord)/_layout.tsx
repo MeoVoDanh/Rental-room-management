@@ -56,6 +56,13 @@ export default function LandlordLayout() {
         }}
       />
       <Tabs.Screen
+        name="nodes"
+        options={{
+          title: 'Node',
+          tabBarIcon: ({ color, size }) => <Ionicons name="hardware-chip" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="alerts"
         options={{
           title: 'Cảnh báo',

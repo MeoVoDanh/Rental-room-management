@@ -464,8 +464,10 @@ def on_message(client, userdata, msg):
 
 def handle_auth_request(client, room_id, payload):
     request_id = payload.get("request_id")
-    method = payload.get("method")  # 'rfid' hoặc 'pin'
-    raw_data = payload.get("data")  # UID thẻ hoặc chuỗi mã PIN người dùng nhập
+    method = str(payload.get("method") or "").strip().lower()
+    # Phải chuẩn hóa giống hệt lúc tạo credential. Nếu ESP32 gửi UID dạng
+    # "A1:B2:C3:D4" nhưng DB được băm từ "A1B2C3D4" thì bcrypt sẽ không khớp.
+    raw_data = normalize_credential_value(method, payload.get("data"))
 
     # Truy vấn thông tin xác thực đang hoạt động của phòng trong Supabase
     res = supabase.table("access_credentials") \
@@ -639,7 +641,44 @@ def create_room():
         return jsonify({"error": f"Không tạo được phòng: {exc}"}), 500
 
 
-@app.route("/api/rooms/<room_id>", methods=["PATCH", "DELETE"])
+def get_room_deletion_status(room):
+    """Trả về đầy đủ điều kiện chặn xóa để API và giao diện dùng chung."""
+    room_id = str(room["id"])
+    assigned_kits = (
+        supabase.table("node_kits")
+        .select("id")
+        .eq("room_id", room_id)
+        .limit(1)
+        .execute()
+    )
+    assigned_nodes = (
+        supabase.table("iot_nodes")
+        .select("id")
+        .eq("room_id", room_id)
+        .limit(1)
+        .execute()
+    )
+    has_tenant = bool(room.get("tenant_id"))
+    has_nodes = bool(assigned_kits.data or assigned_nodes.data)
+
+    if has_tenant and has_nodes:
+        message = "Vui lòng trả phòng cho người thuê và gỡ node trước khi xóa phòng."
+    elif has_tenant:
+        message = "Phòng đang có người thuê. Vui lòng trả phòng trước khi xóa phòng."
+    elif has_nodes:
+        message = "Phòng đang được gán node. Vui lòng gỡ node trước khi xóa phòng."
+    else:
+        message = None
+
+    return {
+        "can_delete": not has_tenant and not has_nodes,
+        "has_tenant": has_tenant,
+        "has_nodes": has_nodes,
+        "message": message,
+    }
+
+
+@app.route("/api/rooms/<room_id>", methods=["GET", "PATCH", "DELETE"])
 def manage_room(room_id):
     data = request.get_json(silent=True) or {}
     actor_id = data.get("actor_id") if request.method == "PATCH" else request.args.get("actor_id")
@@ -654,12 +693,12 @@ def manage_room(room_id):
         supabase.table("rooms").update({"display_name": display_name}).eq("id", str(room_id)).execute()
         return jsonify({"status": "updated", "display_name": display_name})
 
-    if room.get("tenant_id"):
-        return jsonify({"error": "Phải cho người thuê trả phòng trước khi xóa phòng"}), 409
-
     try:
-        # Tháo node trước để node vẫn tồn tại và có thể gán sang phòng khác.
-        supabase.table("iot_nodes").update({"room_id": None}).eq("room_id", str(room_id)).execute()
+        deletion_status = get_room_deletion_status(room)
+        if request.method == "GET":
+            return jsonify(deletion_status)
+        if not deletion_status["can_delete"]:
+            return jsonify({"error": deletion_status["message"], **deletion_status}), 409
 
         # Xóa từ bảng con lên bảng cha để không vướng khóa ngoại.
         for table_name in (
@@ -1254,6 +1293,190 @@ def handle_node_register(client, payload, is_retained=False):
         f"[NODE] Đã gán {mac_address} "
         f"({node_type}) vào phòng {room_id}"
     )
+
+
+def require_node_kit_owner(actor_id, kit_id=None):
+    profile_result = supabase.table("profiles").select("id,role").eq("id", actor_id or "").limit(1).execute()
+    profile = (profile_result.data or [None])[0]
+    if not profile or profile.get("role") not in ("landlord", "admin"):
+        return None, (jsonify({"error": "Chỉ chủ trọ được quản lý bộ node"}), 403)
+    if not kit_id:
+        return profile, None
+    result = supabase.table("node_kits").select("*").eq("id", kit_id).limit(1).execute()
+    kit = (result.data or [None])[0]
+    if not kit:
+        return None, (jsonify({"error": "Không tìm thấy bộ node"}), 404)
+    if str(kit.get("landlord_id")) != str(actor_id):
+        return None, (jsonify({"error": "Bạn không quản lý bộ node này"}), 403)
+    return kit, None
+
+
+def validate_node_kit_macs(door_mac, sensor_mac, kit_id=None, allowed_room_id=None):
+    if door_mac == sensor_mac:
+        return "MAC node cửa và node cảm biến phải khác nhau"
+    for mac_address, node_type in ((door_mac, "door"), (sensor_mac, "sensor")):
+        if len(mac_address) != 12 or any(char not in "0123456789ABCDEF" for char in mac_address):
+            return f"MAC {node_type} phải gồm đúng 12 ký tự hexadecimal"
+        result = supabase.table("iot_nodes").select("*").eq("mac_address", mac_address).limit(1).execute()
+        node = (result.data or [None])[0]
+        if not node:
+            continue
+        if node.get("node_type") != node_type:
+            return f"MAC {mac_address} đã đăng ký là node {node.get('node_type')}"
+        if node.get("kit_id") and str(node.get("kit_id")) != str(kit_id or ""):
+            return f"MAC {mac_address} đang thuộc một bộ node khác"
+        if node.get("room_id") and not node.get("kit_id") and str(node.get("room_id")) != str(allowed_room_id or ""):
+            return f"MAC {mac_address} đang được gán trực tiếp vào Phòng {node.get('room_id')}"
+    return None
+
+
+def save_node_kit_members(kit, door_mac, sensor_mac):
+    kit_id = str(kit["id"])
+    room_id = kit.get("room_id")
+    requested = {door_mac, sensor_mac}
+    old_nodes = supabase.table("iot_nodes").select("*").eq("kit_id", kit_id).execute().data or []
+    for node in old_nodes:
+        if node.get("mac_address") not in requested:
+            supabase.table("iot_nodes").update({"kit_id": None, "room_id": None}).eq("id", node["id"]).execute()
+            publish_node_config(mqtt_client, node["mac_address"], "")
+
+    for mac_address, node_type in ((door_mac, "door"), (sensor_mac, "sensor")):
+        existing = supabase.table("iot_nodes").select("*").eq("mac_address", mac_address).limit(1).execute().data or []
+        values = {
+            "device_id": f"{node_type}-{mac_address}",
+            "node_type": node_type,
+            "kit_id": kit_id,
+            "room_id": room_id,
+        }
+        if existing:
+            supabase.table("iot_nodes").update(values).eq("id", existing[0]["id"]).execute()
+        else:
+            supabase.table("iot_nodes").insert({
+                **values, "mac_address": mac_address, "is_online": False, "last_seen": None
+            }).execute()
+        publish_node_config(mqtt_client, mac_address, room_id or "")
+
+
+def serialize_node_kits(kits):
+    kit_ids = [str(kit["id"]) for kit in kits]
+    nodes = []
+    if kit_ids:
+        nodes = supabase.table("iot_nodes").select("*").in_("kit_id", kit_ids).execute().data or []
+    by_kit = {}
+    for node in nodes:
+        by_kit.setdefault(str(node.get("kit_id")), []).append(node)
+    return [{**kit, "nodes": by_kit.get(str(kit["id"]), [])} for kit in kits]
+
+
+@app.route("/api/node-kits", methods=["GET", "POST"])
+def node_kits_collection():
+    try:
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id") if request.method == "POST" else request.args.get("actor_id")
+        _, error_response = require_node_kit_owner(actor_id)
+        if error_response:
+            return error_response
+
+        if request.method == "GET":
+            kits = supabase.table("node_kits").select("*").eq("landlord_id", actor_id).order("created_at").execute().data or []
+            return jsonify({"kits": serialize_node_kits(kits)})
+
+        name = str(data.get("name") or "").strip()
+        door_mac = normalize_mac(data.get("door_mac"))
+        sensor_mac = normalize_mac(data.get("sensor_mac"))
+        if not name:
+            return jsonify({"error": "Tên bộ node không được để trống"}), 400
+        legacy_nodes = supabase.table("iot_nodes").select("room_id").in_("mac_address", [door_mac, sensor_mac]).execute().data or []
+        legacy_rooms = {str(node["room_id"]) for node in legacy_nodes if node.get("room_id")}
+        if len(legacy_rooms) > 1:
+            return jsonify({"error": "Hai MAC cũ đang thuộc hai phòng khác nhau"}), 409
+        legacy_room_id = next(iter(legacy_rooms), None)
+        if legacy_room_id:
+            _, room_error = require_room_landlord(actor_id, legacy_room_id)
+            if room_error:
+                return room_error
+            conflict = supabase.table("node_kits").select("id").eq("room_id", legacy_room_id).limit(1).execute()
+            if conflict.data:
+                return jsonify({"error": f"Phòng {legacy_room_id} đã có một bộ node"}), 409
+        mac_error = validate_node_kit_macs(door_mac, sensor_mac, allowed_room_id=legacy_room_id)
+        if mac_error:
+            return jsonify({"error": mac_error}), 409
+        result = supabase.table("node_kits").insert({
+            "landlord_id": actor_id, "name": name, "room_id": legacy_room_id
+        }).execute()
+        kit = (result.data or [{}])[0]
+        save_node_kit_members(kit, door_mac, sensor_mac)
+        kit = serialize_node_kits([kit])[0]
+        return jsonify({"kit": kit}), 201
+    except Exception as exc:
+        print(f"[LỖI bộ node]: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/node-kits/<kit_id>", methods=["PATCH", "DELETE"])
+def manage_node_kit(kit_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id") if request.method == "PATCH" else request.args.get("actor_id")
+        kit, error_response = require_node_kit_owner(actor_id, kit_id)
+        if error_response:
+            return error_response
+        if request.method == "DELETE":
+            members = supabase.table("iot_nodes").select("mac_address").eq("kit_id", kit_id).execute().data or []
+            for node in members:
+                publish_node_config(mqtt_client, node["mac_address"], "")
+            supabase.table("iot_nodes").delete().eq("kit_id", kit_id).execute()
+            supabase.table("node_kits").delete().eq("id", kit_id).execute()
+            return jsonify({"status": "deleted"})
+
+        name = str(data.get("name") or "").strip()
+        door_mac = normalize_mac(data.get("door_mac"))
+        sensor_mac = normalize_mac(data.get("sensor_mac"))
+        if not name:
+            return jsonify({"error": "Tên bộ node không được để trống"}), 400
+        mac_error = validate_node_kit_macs(door_mac, sensor_mac, kit_id, kit.get("room_id"))
+        if mac_error:
+            return jsonify({"error": mac_error}), 409
+        updated = supabase.table("node_kits").update({"name": name}).eq("id", kit_id).execute().data[0]
+        save_node_kit_members(updated, door_mac, sensor_mac)
+        return jsonify({"kit": serialize_node_kits([updated])[0]})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/node-kits/<kit_id>/room", methods=["PATCH", "DELETE"])
+def manage_node_kit_room(kit_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        actor_id = data.get("actor_id") if request.method == "PATCH" else request.args.get("actor_id")
+        kit, error_response = require_node_kit_owner(actor_id, kit_id)
+        if error_response:
+            return error_response
+        if request.method == "DELETE":
+            supabase.table("node_kits").update({"room_id": None}).eq("id", kit_id).execute()
+            members = supabase.table("iot_nodes").select("mac_address").eq("kit_id", kit_id).execute().data or []
+            supabase.table("iot_nodes").update({"room_id": None}).eq("kit_id", kit_id).execute()
+            for node in members:
+                publish_node_config(mqtt_client, node["mac_address"], "")
+            return jsonify({"status": "available"})
+
+        room_id = str(data.get("room_id") or "").strip()
+        _, room_error = require_room_landlord(actor_id, room_id)
+        if room_error:
+            return room_error
+        conflict = supabase.table("node_kits").select("id").eq("room_id", room_id).neq("id", kit_id).limit(1).execute()
+        if conflict.data:
+            return jsonify({"error": "Phòng này đã có một bộ node"}), 409
+        members = supabase.table("iot_nodes").select("*").eq("kit_id", kit_id).execute().data or []
+        if {node.get("node_type") for node in members} != {"door", "sensor"}:
+            return jsonify({"error": "Bộ node phải có đủ một door và một sensor"}), 409
+        supabase.table("node_kits").update({"room_id": room_id}).eq("id", kit_id).execute()
+        supabase.table("iot_nodes").update({"room_id": room_id}).eq("kit_id", kit_id).execute()
+        for node in members:
+            publish_node_config(mqtt_client, node["mac_address"], room_id)
+        return jsonify({"status": "assigned", "room_id": room_id})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/nodes", methods=["GET", "POST"])
