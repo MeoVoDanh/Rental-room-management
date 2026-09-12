@@ -7,6 +7,7 @@ export interface TenantItem {
   phone: string;
   email?: string;
   assignedRoomId?: string;
+  assignedRoomIds: string[];
   createdAt: string;
 }
 
@@ -24,14 +25,20 @@ async function tenantApi(path: string, options?: RequestInit) {
 
 export async function getTenants(landlordId: string): Promise<TenantItem[]> {
   const body = await tenantApi(`/api/tenants?actor_id=${encodeURIComponent(landlordId)}`);
-  return (body.tenants ?? []).map((tenant: any) => ({
-    id: String(tenant.id),
-    fullName: tenant.full_name ?? 'Chưa đặt tên',
-    phone: tenant.phone ?? '',
-    email: tenant.email ?? '',
-    assignedRoomId: tenant.assigned_room_id ?? undefined,
-    createdAt: tenant.created_at,
-  }));
+  return (body.tenants ?? []).map((tenant: any) => {
+    const assignedRoomIds = tenant.assigned_room_ids?.length
+      ? tenant.assigned_room_ids.map(String)
+      : tenant.assigned_room_id ? [String(tenant.assigned_room_id)] : [];
+    return {
+      id: String(tenant.id),
+      fullName: tenant.full_name ?? 'Chưa đặt tên',
+      phone: tenant.phone ?? '',
+      email: tenant.email ?? '',
+      assignedRoomId: assignedRoomIds[0],
+      assignedRoomIds,
+      createdAt: tenant.created_at,
+    };
+  });
 }
 
 /**

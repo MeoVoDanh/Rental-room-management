@@ -90,7 +90,10 @@ export default function LandlordTenantsScreen() {
 
   const handleDelete = async (tenant: TenantItem) => {
     if (!user?.id) return;
-    const message = `${tenant.fullName} sẽ bị xóa tài khoản đăng nhập, thu hồi RFID/PIN và tự trả ${tenant.assignedRoomId ? `Phòng ${tenant.assignedRoomId}` : 'phòng nếu có'}. Thao tác này không thể khôi phục.`;
+    const assignedRooms = tenant.assignedRoomIds.length
+      ? `các phòng ${tenant.assignedRoomIds.join(', ')}`
+      : 'phòng nếu có';
+    const message = `${tenant.fullName} sẽ bị xóa tài khoản đăng nhập, thu hồi RFID/PIN và tự trả ${assignedRooms}. Thao tác này không thể khôi phục.`;
     const confirmed = Platform.OS === 'web'
       ? globalThis.confirm(`Xóa người thuê?\n\n${message}`)
       : await new Promise<boolean>((resolve) => Alert.alert('Xóa người thuê?', message, [
@@ -159,8 +162,8 @@ export default function LandlordTenantsScreen() {
                   <Text style={styles.tenantMeta}>{tenant.email || 'Chưa có email hiển thị'}</Text>
                 </View>
                 <Badge
-                  label={tenant.assignedRoomId ? `Phòng ${tenant.assignedRoomId}` : 'Chưa gán phòng'}
-                  variant={tenant.assignedRoomId ? 'success' : 'warning'}
+                  label={tenant.assignedRoomIds.length ? `Phòng ${tenant.assignedRoomIds.join(', ')}` : 'Chưa gán phòng'}
+                  variant={tenant.assignedRoomIds.length ? 'success' : 'warning'}
                 />
                 <View style={styles.rowActions}>
                   <TouchableOpacity onPress={() => handleOpenEdit(tenant)}><Ionicons name="create-outline" size={20} color={Colors.primaryLight} /></TouchableOpacity>

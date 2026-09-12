@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRoom } from '@/hooks/useRoom';
 import { useCommands } from '@/hooks/useCommands';
 import { Colors, Spacing, FontSize } from '@/constants/theme';
+import { TenantRoomSelector } from '@/components/room/TenantRoomSelector';
 
 export default function TenantControls() {
   const { user } = useAuth();
@@ -73,6 +74,7 @@ export default function TenantControls() {
   return (
     <View style={styles.container}>
       <Header title="Điều khiển" subtitle={room.name} />
+      <TenantRoomSelector />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}

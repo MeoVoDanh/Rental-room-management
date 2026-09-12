@@ -9,7 +9,10 @@ export interface User {
   fullName: string;
   phone: string;
   role: UserRole;
-  assignedRoomId?: string; // chỉ tenant mới có
+  /** Phòng đang được chọn trên giao diện người thuê. */
+  assignedRoomId?: string;
+  /** Toàn bộ phòng mà tài khoản người thuê đang thuê. */
+  assignedRoomIds?: string[];
 }
 
 export interface AuthSession {

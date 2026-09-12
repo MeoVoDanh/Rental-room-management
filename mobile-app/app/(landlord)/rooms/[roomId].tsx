@@ -366,8 +366,8 @@ export default function RoomDetailScreen() {
               ) : (
                 tenants.map((t) => {
                   const isSelected = selectedTenantId === t.id;
-                  const isCurrent = t.assignedRoomId === roomId;
-                  const isOther = t.assignedRoomId && t.assignedRoomId !== roomId;
+                  const isCurrent = t.assignedRoomIds.includes(roomId);
+                  const otherRooms = t.assignedRoomIds.filter((id) => id !== roomId);
 
                   return (
                     <TouchableOpacity
@@ -391,11 +391,11 @@ export default function RoomDetailScreen() {
                         label={
                           isCurrent
                             ? 'Đang ở phòng này'
-                            : isOther
-                              ? `Phòng ${t.assignedRoomId}`
+                            : otherRooms.length
+                              ? `Đang thuê: ${otherRooms.join(', ')}`
                               : 'Chưa có phòng'
                         }
-                        variant={isCurrent ? 'info' : isOther ? 'neutral' : 'success'}
+                        variant={isCurrent ? 'info' : otherRooms.length ? 'neutral' : 'success'}
                       />
                     </TouchableOpacity>
                   );

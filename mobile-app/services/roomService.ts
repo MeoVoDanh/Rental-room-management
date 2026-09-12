@@ -151,25 +151,32 @@ export async function getRoomById(roomId: string): Promise<Room | null> {
   return mapRoom(room, profile, devices ?? [], nodes);
 }
 
-/** Lấy phòng mà tenant đang thuê */
-export async function getTenantRoom(tenantId: string): Promise<Room | null> {
-  const { data: room, error } = await supabase
+/** Lấy tất cả phòng mà tenant đang thuê. */
+export async function getTenantRooms(tenantId: string): Promise<Room[]> {
+  const { data: rooms, error } = await supabase
     .from('rooms')
     .select('*')
     .eq('tenant_id', tenantId)
     .is('archived_at', null)
-    .single();
+    .order('id');
 
-  if (error || !room) return null;
+  if (error) throw error;
+  if (!rooms?.length) return [];
 
   const { data: devices } = await supabase
     .from('devices')
     .select('*')
-    .eq('room_id', room.id);
+    .in('room_id', rooms.map((room) => room.id));
 
   const nodes = await loadIoTNodes();
+  return rooms.map((room) =>
+    mapRoom(room, null, (devices ?? []).filter((device) => device.room_id === room.id), nodes)
+  );
+}
 
-  return mapRoom(room, null, devices ?? [], nodes);
+/** Tương thích các nơi chỉ cần phòng đầu tiên. */
+export async function getTenantRoom(tenantId: string): Promise<Room | null> {
+  return (await getTenantRooms(tenantId))[0] ?? null;
 }
 
 /**
@@ -182,6 +189,19 @@ async function roomApi(path: string, options: RequestInit) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
   return body;
+}
+
+/** Lấy ID tất cả phòng của tenant trực tiếp từ Supabase bằng session hiện tại. */
+export async function getTenantRoomIds(tenantId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .is('archived_at', null)
+    .order('id');
+
+  if (error) throw new Error(`Không lấy được danh sách phòng: ${error.message}`);
+  return (data ?? []).map((room) => String(room.id));
 }
 
 export async function createRoom(landlordId: string, roomId: string, displayName?: string): Promise<void> {

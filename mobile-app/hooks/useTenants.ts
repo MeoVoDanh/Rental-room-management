@@ -95,8 +95,14 @@ export function useTenants(landlordId?: string) {
     mutationVersion.current += 1;
     mutationCount.current += 1;
     setTenants((current) => current.map((tenant) => {
-      if (tenant.id === tenantId) return { ...tenant, assignedRoomId: roomId };
-      if (tenant.assignedRoomId === roomId) return { ...tenant, assignedRoomId: undefined };
+      if (tenant.id === tenantId) {
+        const assignedRoomIds = Array.from(new Set([...tenant.assignedRoomIds, roomId]));
+        return { ...tenant, assignedRoomId: assignedRoomIds[0], assignedRoomIds };
+      }
+      if (tenant.assignedRoomIds.includes(roomId)) {
+        const assignedRoomIds = tenant.assignedRoomIds.filter((id) => id !== roomId);
+        return { ...tenant, assignedRoomId: assignedRoomIds[0], assignedRoomIds };
+      }
       return tenant;
     }));
     try {
@@ -115,8 +121,11 @@ export function useTenants(landlordId?: string) {
     mutationVersion.current += 1;
     mutationCount.current += 1;
     setTenants((current) => current.map((tenant) =>
-      tenant.assignedRoomId === roomId
-        ? { ...tenant, assignedRoomId: undefined }
+      tenant.assignedRoomIds.includes(roomId)
+        ? (() => {
+            const assignedRoomIds = tenant.assignedRoomIds.filter((id) => id !== roomId);
+            return { ...tenant, assignedRoomId: assignedRoomIds[0], assignedRoomIds };
+          })()
         : tenant
     ));
     try {

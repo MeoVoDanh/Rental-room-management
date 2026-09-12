@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { User, UserRole } from '@/types';
-import { getTenantRoom } from '@/services/roomService';
+import { getTenantRoomIds } from '@/services/roomService';
 
 interface AuthContextType {
   user: User | null;
@@ -17,6 +17,7 @@ interface AuthContextType {
     phone: string,
     role: UserRole
   ) => Promise<void>;
+  selectAssignedRoom: (roomId: string) => void;
   logout: () => Promise<void>;
 }
 
@@ -27,6 +28,7 @@ const AuthContext = createContext<AuthContextType>({
   authError: null,
   login: async () => ({} as User),
   register: async () => {},
+  selectAssignedRoom: () => {},
   logout: async () => {},
 });
 
@@ -50,10 +52,11 @@ async function buildUser(supabaseUser: any): Promise<User> {
   // Dữ liệu cũ có thể dùng role "admin"; trên app xem admin là chủ trọ.
   const role = profile.role === 'admin' ? UserRole.LANDLORD : profile.role as UserRole;
   let assignedRoomId: string | undefined;
+  let assignedRoomIds: string[] = [];
 
   if (role === UserRole.TENANT) {
-    const room = await getTenantRoom(supabaseUser.id);
-    assignedRoomId = room?.id;
+    assignedRoomIds = await getTenantRoomIds(supabaseUser.id);
+    assignedRoomId = assignedRoomIds[0];
   }
 
   return {
@@ -63,6 +66,7 @@ async function buildUser(supabaseUser: any): Promise<User> {
     phone: profile.phone ?? '',
     role,
     assignedRoomId,
+    assignedRoomIds,
   };
 }
 
@@ -114,26 +118,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user || user.role !== UserRole.TENANT) return;
 
-    const syncAssignedRoom = async () => {
-      const { data } = await supabase
-        .from('rooms')
-        .select('id')
-        .eq('tenant_id', user.id)
-        .is('archived_at', null)
-        .maybeSingle();
-      const nextRoomId = data?.id as string | undefined;
-      setUser((current) => {
-        if (!current || current.id !== user.id || current.assignedRoomId === nextRoomId) return current;
-        return { ...current, assignedRoomId: nextRoomId };
-      });
+    const syncAssignedRooms = async () => {
+      try {
+        const nextRoomIds = await getTenantRoomIds(user.id);
+        setUser((current) => {
+          if (!current || current.id !== user.id) return current;
+          const nextRoomId = current.assignedRoomId && nextRoomIds.includes(current.assignedRoomId)
+            ? current.assignedRoomId
+            : nextRoomIds[0];
+          const unchanged = current.assignedRoomId === nextRoomId &&
+            JSON.stringify(current.assignedRoomIds ?? []) === JSON.stringify(nextRoomIds);
+          return unchanged ? current : { ...current, assignedRoomId: nextRoomId, assignedRoomIds: nextRoomIds };
+        });
+      } catch (error) {
+        // Đồng bộ nền có thể thất bại tạm thời do mạng. Giữ dữ liệu hiện tại và
+        // thử lại ở lần polling/realtime tiếp theo, không tạo unhandled Promise.
+        console.warn('[TENANT ROOMS] Tạm thời chưa đồng bộ được danh sách phòng', error);
+      }
     };
 
-    syncAssignedRoom();
-    const interval = setInterval(syncAssignedRoom, 3000);
+    syncAssignedRooms();
+    const interval = setInterval(syncAssignedRooms, 3000);
     tenantRoomChannelSequence += 1;
     const channel = supabase
       .channel(`tenant-room-${user.id}-${tenantRoomChannelSequence}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, syncAssignedRoom)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, syncAssignedRooms)
       .subscribe();
 
     return () => {
@@ -141,6 +150,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.removeChannel(channel);
     };
   }, [user?.id, user?.role]);
+
+  const selectAssignedRoom = useCallback((roomId: string) => {
+    setUser((current) => {
+      if (!current?.assignedRoomIds?.includes(roomId)) return current;
+      return { ...current, assignedRoomId: roomId };
+    });
+  }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<User> => {
     setAuthError(null);
@@ -220,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authError,
         login,
         register,
+        selectAssignedRoom,
         logout,
       }}>
       {children}
