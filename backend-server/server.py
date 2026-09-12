@@ -752,20 +752,6 @@ def manage_room_tenant(room_id):
         if tenant_landlord and str(tenant_landlord) != str(actor_id):
             return jsonify({"error": "Người thuê không thuộc tài khoản chủ trọ này"}), 403
 
-        occupied_result = (
-            supabase.table("rooms")
-            .select("id")
-            .eq("tenant_id", tenant_id)
-            .is_("archived_at", "null")
-            .neq("id", str(room_id))
-            .limit(1)
-            .execute()
-        )
-        if occupied_result.data:
-            return jsonify({
-                "error": f"Người thuê đang ở Phòng {occupied_result.data[0]['id']}. Hãy trả phòng đó trước."
-            }), 409
-
         if room.get("tenant_id") and str(room.get("tenant_id")) != tenant_id:
             return jsonify({"error": "Phòng đang có người thuê. Hãy trả phòng trước."}), 409
 
@@ -820,23 +806,59 @@ def list_tenants():
             .is_("archived_at", "null")
             .execute()
         )
-        room_by_tenant = {
-            str(room.get("tenant_id")): str(room.get("id"))
-            for room in rooms_result.data or []
-            if room.get("tenant_id")
-        }
+        rooms_by_tenant = {}
+        for room in rooms_result.data or []:
+            if room.get("tenant_id"):
+                rooms_by_tenant.setdefault(str(room["tenant_id"]), []).append(str(room["id"]))
         tenants = [{
             "id": str(profile["id"]),
             "full_name": profile.get("full_name") or "Chưa đặt tên",
             "phone": profile.get("phone") or "",
             "email": profile.get("email") or "",
-            "assigned_room_id": room_by_tenant.get(str(profile["id"])),
+            # Giữ assigned_room_id để tương thích app cũ, app mới dùng danh sách.
+            "assigned_room_id": (rooms_by_tenant.get(str(profile["id"])) or [None])[0],
+            "assigned_room_ids": rooms_by_tenant.get(str(profile["id"]), []),
             "created_at": profile.get("created_at"),
         } for profile in profiles_result.data or []]
         return jsonify({"tenants": tenants})
     except Exception as exc:
         print(f"[LỖI lấy danh sách người thuê]: {exc}")
         return jsonify({"error": f"Không lấy được danh sách người thuê: {exc}"}), 500
+
+
+@app.route("/api/tenant/rooms", methods=["GET"])
+def list_current_tenant_rooms():
+    """Trả toàn bộ phòng của chính tài khoản tenant đang đăng nhập."""
+    try:
+        actor_id = str(request.args.get("actor_id") or "").strip()
+        profile_result = (
+            supabase.table("profiles")
+            .select("id,role")
+            .eq("id", actor_id)
+            .limit(1)
+            .execute()
+        )
+        profile = (profile_result.data or [None])[0]
+        if not profile or profile.get("role") != "tenant":
+            return jsonify({"error": "Chỉ tài khoản người thuê được lấy danh sách phòng này"}), 403
+
+        rooms_result = (
+            supabase.table("rooms")
+            .select("id,display_name")
+            .eq("tenant_id", actor_id)
+            .is_("archived_at", "null")
+            .order("id")
+            .execute()
+        )
+        return jsonify({
+            "rooms": [{
+                "id": str(room["id"]),
+                "name": room.get("display_name") or f"Phòng {room['id']}",
+            } for room in rooms_result.data or []]
+        })
+    except Exception as exc:
+        print(f"[LỖI lấy phòng người thuê]: {exc}")
+        return jsonify({"error": f"Không lấy được danh sách phòng: {exc}"}), 500
 
 
 def serialize_credentials(rows):

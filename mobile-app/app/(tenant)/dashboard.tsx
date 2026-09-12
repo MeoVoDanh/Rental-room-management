@@ -15,6 +15,7 @@ import { AlertStatus } from '@/types';
 import { Colors, Spacing, FontSize } from '@/constants/theme';
 import { View as RNView, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { TenantRoomSelector } from '@/components/room/TenantRoomSelector';
 
 export default function TenantDashboard() {
   const { user, logout } = useAuth();
@@ -59,6 +60,7 @@ export default function TenantDashboard() {
         subtitle={`Xin chào, ${user?.fullName?.split(' ').pop()}`}
         onLogout={handleLogout}
       />
+      <TenantRoomSelector />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
