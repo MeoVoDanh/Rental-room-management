@@ -1062,13 +1062,13 @@ def can_control_room(user_id, room_id):
 
     role = profile.data.get("role")
     if role in ("landlord", "admin"):
-        allowed = str(room.data.get("landlord_id") or "") == str(user_id)
-    elif role == "tenant":
-        allowed = str(room.data.get("tenant_id") or "") == str(user_id)
-    else:
-        allowed = False
+        return False, "Chủ trọ chỉ được xem trạng thái thiết bị, không được điều khiển"
 
-    return allowed, None if allowed else "Bạn không có quyền điều khiển phòng này"
+    allowed = (
+        role == "tenant"
+        and str(room.data.get("tenant_id") or "") == str(user_id)
+    )
+    return allowed, None if allowed else "Bạn không phải người thuê của phòng này"
 
 
 def clamp_event_limit(raw_limit):

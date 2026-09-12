@@ -23,7 +23,7 @@ export function useAccessEvents(roomId?: string, limit = 30) {
 
     // Backend ghi sự kiện sau khi ESP32 xác thực qua MQTT. Polling ngắn
     // vẫn hoạt động khi dự án Supabase chưa bật Realtime cho bảng này.
-    const interval = setInterval(fetch, 2000);
+    const interval = setInterval(fetch, 15_000);
     return () => clearInterval(interval);
   }, [fetch]);
 

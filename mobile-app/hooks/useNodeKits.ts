@@ -14,7 +14,7 @@ export function useNodeKits(actorId?: string) {
     finally { setIsLoading(false); }
   }, [actorId]);
 
-  useEffect(() => { refetch(); const timer = setInterval(refetch, 5000); return () => clearInterval(timer); }, [refetch]);
+  useEffect(() => { refetch(); const timer = setInterval(refetch, 15_000); return () => clearInterval(timer); }, [refetch]);
 
   const run = async (operation: () => Promise<unknown>) => {
     setIsSaving(true);

@@ -1,3 +1,5 @@
+import { apiRequest } from './apiClient';
+
 export type IoTNodeType = 'door' | 'sensor';
 
 export interface IoTNode {
@@ -9,10 +11,6 @@ export interface IoTNode {
   isOnline: boolean;
   lastSeen?: string;
 }
-
-const API_URL = (
-  process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000'
-).replace(/\/$/, '');
 
 function mapNode(row: any): IoTNode {
   const lastSeen = row.last_seen ?? undefined;
@@ -31,17 +29,8 @@ function mapNode(row: any): IoTNode {
   };
 }
 
-async function readJson(response: Response) {
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
-  }
-  return body;
-}
-
 export async function getIoTNodes(): Promise<IoTNode[]> {
-  const response = await fetch(`${API_URL}/api/nodes`);
-  const body = await readJson(response);
+  const body = await apiRequest('/api/nodes');
   return (body.nodes ?? []).map(mapNode);
 }
 
@@ -49,34 +38,32 @@ export async function assignIoTNode(
   macAddress: string,
   roomId: string
 ): Promise<IoTNode> {
-  const response = await fetch(`${API_URL}/api/nodes/assign`, {
+  const body = await apiRequest('/api/nodes/assign', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mac_address: macAddress, room_id: roomId }),
   });
-  const body = await readJson(response);
   return mapNode(body.node);
 }
 
 export async function createIoTNode(params: {
   actorId: string; roomId: string; macAddress: string; nodeType: IoTNodeType;
 }): Promise<IoTNode> {
-  const response = await fetch(`${API_URL}/api/nodes`, {
+  const body = await apiRequest('/api/nodes', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actor_id: params.actorId, room_id: params.roomId, mac_address: params.macAddress, node_type: params.nodeType }),
   });
-  return mapNode((await readJson(response)).node);
+  return mapNode(body.node);
 }
 
 export async function updateIoTNode(nodeId: string, actorId: string, macAddress: string, nodeType: IoTNodeType): Promise<IoTNode> {
-  const response = await fetch(`${API_URL}/api/nodes/${encodeURIComponent(nodeId)}`, {
+  const body = await apiRequest(`/api/nodes/${encodeURIComponent(nodeId)}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actor_id: actorId, mac_address: macAddress, node_type: nodeType }),
   });
-  return mapNode((await readJson(response)).node);
+  return mapNode(body.node);
 }
 
 export async function removeIoTNode(nodeId: string, actorId: string, permanent = false): Promise<void> {
-  const response = await fetch(`${API_URL}/api/nodes/${encodeURIComponent(nodeId)}?actor_id=${encodeURIComponent(actorId)}&permanent=${permanent}`, { method: 'DELETE' });
-  await readJson(response);
+  await apiRequest(`/api/nodes/${encodeURIComponent(nodeId)}?actor_id=${encodeURIComponent(actorId)}&permanent=${permanent}`, { method: 'DELETE' });
 }

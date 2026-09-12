@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { Room, RoomState } from '@/types';
 import { getIoTNodes, IoTNode } from '@/services/iotNodeService';
+import { apiRequest } from '@/services/apiClient';
 
 type DeviceRow = {
   room_id: string;
@@ -182,13 +183,8 @@ export async function getTenantRoom(tenantId: string): Promise<Room | null> {
 /**
  * Tạo phòng mới cho chủ trọ
  */
-const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000').replace(/\/$/, '');
-
 async function roomApi(path: string, options: RequestInit) {
-  const response = await fetch(`${API_URL}${path}`, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
-  return body;
+  return apiRequest(path, options);
 }
 
 /** Lấy ID tất cả phòng của tenant trực tiếp từ Supabase bằng session hiện tại. */

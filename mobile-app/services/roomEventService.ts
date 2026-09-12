@@ -1,11 +1,11 @@
+import { apiRequest } from './apiClient';
+
 export type RoomEventType = 'gas_alert' | 'high_temperature' | 'door_opened' | 'door_closed' | 'door_unlocked' | 'door_locked' | 'light_on' | 'light_off';
 
 export interface RoomEventItem {
   id: string; roomId: string; type: RoomEventType; source: string; actorName: string;
   description?: string; measuredValue?: number; metadata: Record<string, unknown>; createdAt: string;
 }
-
-const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000').replace(/\/$/, '');
 
 function mapRows(rows: any[]): RoomEventItem[] {
   return rows.map((row) => ({
@@ -16,9 +16,7 @@ function mapRows(rows: any[]): RoomEventItem[] {
 }
 
 async function requestEvents(path: string): Promise<RoomEventItem[]> {
-  const response = await fetch(`${API_URL}${path}`);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
+  const body = await apiRequest(path);
   return mapRows(body.events ?? []);
 }
 

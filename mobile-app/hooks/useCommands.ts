@@ -31,7 +31,7 @@ export function useCommands(roomId?: string) {
     fetch(true);
 
     // Tự lấy trạng thái ACK (pending -> completed) sau khi ESP32 xử lý lệnh.
-    const interval = setInterval(() => fetch(false), 2000);
+    const interval = setInterval(() => fetch(false), 15_000);
     return () => clearInterval(interval);
   }, [fetch]);
 

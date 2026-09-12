@@ -31,7 +31,7 @@ export function useRoomEvents(roomId?: string, limit = 100) {
         ? { event: 'INSERT', schema: 'public', table: 'room_events', filter: `room_id=eq.${roomId}` }
         : { event: 'INSERT', schema: 'public', table: 'room_events' }, () => load(false))
       .subscribe();
-    const interval = setInterval(() => load(false), 5000);
+    const interval = setInterval(() => load(false), 15_000);
     return () => { clearInterval(interval); supabase.removeChannel(channel); };
   }, [load, roomId]);
   return { events, isLoading, error, refetch: () => load(false) };

@@ -55,7 +55,7 @@ export function useSensor(roomId: string | undefined) {
       ]);
       setTelemetry(latest);
       setHistory(hist);
-    }, 10000);
+    }, 15_000);
 
     return () => {
       clearInterval(interval);

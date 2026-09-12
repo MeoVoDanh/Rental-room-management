@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { UserRole } from '@/types';
+import { apiRequest } from './apiClient';
 
 export interface TenantItem {
   id: string;
@@ -14,13 +15,8 @@ export interface TenantItem {
 /**
  * Lấy danh sách tất cả người thuê trong hệ thống
  */
-const API_URL = (process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://127.0.0.1:5000').replace(/\/$/, '');
-
 async function tenantApi(path: string, options?: RequestInit) {
-  const response = await fetch(`${API_URL}${path}`, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? `Backend trả về HTTP ${response.status}`);
-  return body;
+  return apiRequest(path, options);
 }
 
 export async function getTenants(landlordId: string): Promise<TenantItem[]> {
